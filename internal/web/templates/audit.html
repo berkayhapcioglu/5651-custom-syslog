@@ -7,9 +7,9 @@
     <button class="secondary" type="submit">Filtrele</button>
   </form>
   {{if .Error}}<div class="panel-body"><div class="alert err"><span>!</span><div><b>{{.Error}}</b></div></div></div>{{end}}
-  <div class="table-wrap"><table class="data log">
+  <div class="table-wrap scroll" tabindex="0" role="region" aria-label="Sonuçlar"><table class="data log">
     <thead><tr><th>Zaman</th><th>Olay</th><th>Kullanıcı</th><th>IP</th><th>Ayrıntı</th></tr></thead>
-    <tbody>{{range .Rows}}<tr><td class="nowrap">{{stamp .Time}}</td><td><span class="badge plain">{{.Event}}</span></td><td>{{.User}}</td><td><code>{{.IP}}</code></td><td><code>{{.Rest}}</code></td></tr>
+    <tbody>{{range .Rows}}<tr><td class="nowrap">{{stamp .Time}}</td><td>{{template "event" .Event}}</td><td>{{.User}}</td><td class="nowrap"><code>{{.IP}}</code></td><td><code>{{.Rest}}</code></td></tr>
     {{else}}<tr><td colspan="5"><div class="empty"><b>Kayıt yok</b></div></td></tr>{{end}}</tbody>
   </table></div>
 </section>
