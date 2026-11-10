@@ -1,18 +1,23 @@
 {{template "head" "Doğrulama"}}
 {{template "nav" .}}
-<p class="crumbs"><a href="/">Müşteriler</a> / <a href="/t/{{.T.ID}}">{{.T.Name}}</a> / <a href="/t/{{.T.ID}}/d/{{.Day}}">{{.Day}}</a> / Doğrulama</p>
-<h1>Doğrulama · {{.Day}}</h1>
+<ol class="crumbs"><li><a href="/t">Müşteriler</a></li><li><a href="/t/{{.T.ID}}">{{.T.Name}}</a></li><li><a href="/t/{{.T.ID}}/d/{{.Day}}">{{daytr .Day}}</a></li><li aria-current="page">Doğrulama</li></ol>
+<div class="page-head"><div><h1>Bütünlük doğrulaması</h1><p class="sub">{{.T.Name}} · {{daytr .Day}}</p></div>
+<div class="actions"><a class="btn secondary" href="/t/{{.T.ID}}/d/{{.Day}}/package.zip">Doğrulama paketini indir</a></div></div>
 {{if .Error}}
-  <p class="err">Doğrulama BAŞARISIZ: {{.Error}}</p>
+  <div class="alert err" role="alert"><span>!</span><div><b>Doğrulama başarısız</b><p>{{.Error}}</p></div></div>
 {{else}}{{with .Report}}
-  <p class="ok">Doğrulama başarılı.</p>
-  <table class="kv">
+  <div class="alert ok" role="status"><span>✓</span><div><b>Doğrulama başarılı</b><p>Zaman damgası manifesti kapsıyor, bütün dosyaların hash'leri ve saatlik zincir tutuyor.</p></div></div>
+  <section class="panel"><table class="kv">
     <tr><th>Dosya sayısı</th><td>{{.Files}}</td></tr>
-    <tr><th>Satır sayısı</th><td>{{.Lines}}</td></tr>
-    <tr><th>Zaman damgası</th><td>{{if .StampTime}}{{.StampTime}}{{else}}yok{{end}}</td></tr>
-    <tr><th>TSA</th><td>{{if .TSA}}{{.TSA}}{{else}}-{{end}}</td></tr>
-    <tr><th>TSA sertifika zinciri</th><td>{{if .ChainToCA}}kök sertifikaya kadar doğrulandı{{else}}kök sertifika ayarlanmadı, sadece imza kontrol edildi{{end}}</td></tr>
-    <tr><th>Önceki gün bağlantısı</th><td>{{if .PrevDay}}{{.PrevDay}} {{if .PrevDayOK}}doğrulandı{{else}}(önceki gün silinmiş){{end}}{{else}}ilk gün{{end}}</td></tr>
-  </table>
+    <tr><th>Kayıt sayısı</th><td>{{thousands .Lines}}</td></tr>
+    <tr><th>Zaman damgası</th><td>{{if .StampTime}}{{stamp .StampTime}}{{else}}yok{{end}}</td></tr>
+    <tr><th>Zaman damgası sağlayıcısı</th><td>{{if .TSA}}{{.TSA}}{{else}}-{{end}}</td></tr>
+    <tr><th>TSA sertifika zinciri</th><td>{{if .ChainToCA}}<span class="badge ok">Kök sertifikaya kadar doğrulandı</span>{{else}}<span class="badge warn">Kök sertifika ayarlanmadı, sadece imza kontrol edildi</span>{{end}}</td></tr>
+    <tr><th>Önceki gün bağlantısı</th><td>{{if .PrevDay}}{{daytr .PrevDay}} {{if .PrevDayOK}}<span class="badge ok">Doğrulandı</span>{{else}}<span class="badge warn">Önceki gün silinmiş</span>{{end}}{{else}}İlk gün{{end}}</td></tr>
+  </table></section>
+  <section class="panel"><div class="panel-head"><h2>Servisten bağımsız doğrulama</h2></div><div class="panel-body help">
+    <p>Paketi indirip OpenSSL ile kontrol edebilirsiniz:</p>
+    <pre>openssl ts -verify -data manifest.json -in manifest.json.tsr -CAfile kamusm-root.crt</pre>
+  </div></section>
 {{end}}{{end}}
 {{template "foot"}}

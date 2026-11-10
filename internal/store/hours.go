@@ -46,13 +46,24 @@ func chainOf(e HourEntry) (string, error) {
 
 var hoursMu sync.Mutex
 
+// ErrHourListed is returned by AppendHour when the hour is in the list already.
+var ErrHourListed = errors.New("hour already listed")
+
 // AppendHour appends e to the day's hours.jsonl, linking it into the chain.
 func AppendHour(dayDir string, e HourEntry) (HourEntry, error) {
 	hoursMu.Lock()
 	defer hoursMu.Unlock()
+	if _, err := os.Stat(filepath.Join(dayDir, SealedMarker)); err == nil {
+		return e, fmt.Errorf("%s: day is already sealed; hour %s/%s not added", dayDir, e.Device, e.Hour)
+	}
 	entries, err := ReadHours(dayDir)
 	if err != nil {
 		return e, err
+	}
+	for _, x := range entries {
+		if x.Device == e.Device && x.Hour == e.Hour {
+			return x, ErrHourListed
+		}
 	}
 	e.Prev = ""
 	if len(entries) > 0 {

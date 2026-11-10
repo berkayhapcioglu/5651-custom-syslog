@@ -212,3 +212,61 @@ func TestSafeJoin(t *testing.T) {
 		t.Fatal(p, err)
 	}
 }
+
+func TestSealHourConcurrentOnce(t *testing.T) {
+	root := t.TempDir()
+	writeDay(t, root, time.Date(2026, 11, 9, 10, 0, 0, 0, ist()))
+	raws, _ := PendingRaw(root, time.Now(), ist())
+	s := newSealer(root)
+	errs := make(chan error, 8)
+	for i := 0; i < 8; i++ {
+		go func() { errs <- s.SealHour(raws[0]) }()
+	}
+	for i := 0; i < 8; i++ {
+		if err := <-errs; err != nil {
+			t.Error(err)
+		}
+	}
+	hours, err := ReadHours(filepath.Dir(filepath.Dir(raws[0])))
+	if err != nil || len(hours) != 1 {
+		t.Fatalf("hour listed %d times (%v)", len(hours), err)
+	}
+}
+
+func TestNoAppendAfterDaySealed(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, SealedMarker), nil, 0o400)
+	if _, err := AppendHour(dir, HourEntry{Device: "10.0.0.1", Hour: "10"}); err == nil {
+		t.Fatal("hour added to a sealed day")
+	}
+}
+
+func TestLateRecordDoesNotReopenClosedHour(t *testing.T) {
+	root := t.TempDir()
+	var closed []string
+	w := NewWriter(root, ist(), quiet, func(p string) { closed = append(closed, p) })
+	stop, done := make(chan struct{}), make(chan struct{})
+	go func() { w.Run(stop); close(done) }()
+	src := netip.MustParseAddr("10.0.0.1")
+	now := time.Now()
+	w.In <- Record{Received: now.Add(-2 * time.Hour), Source: src, Tenant: "musteri-a", Message: []byte("old")}
+	w.In <- Record{Received: now, Source: src, Tenant: "musteri-a", Message: []byte("current")}
+	w.In <- Record{Received: now.Add(-2 * time.Hour).Add(time.Second), Source: src, Tenant: "musteri-a", Message: []byte("late")}
+	close(stop)
+	<-done
+	if len(closed) != 1 {
+		t.Fatalf("closed %v", closed)
+	}
+	if _, err := os.Stat(closed[0]); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := os.ReadFile(closed[0])
+	if strings.Contains(string(b), "late") {
+		t.Fatal("late record written into the closed hour")
+	}
+	cur := filepath.Join(root, "musteri-a", now.In(ist()).Format(DayLayout), "10.0.0.1", now.In(ist()).Format("15")+RawExt)
+	b, _ = os.ReadFile(cur)
+	if !strings.Contains(string(b), "late") || !strings.Contains(string(b), "current") {
+		t.Fatalf("late record lost: %q", b)
+	}
+}

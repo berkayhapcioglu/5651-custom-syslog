@@ -257,9 +257,12 @@ func randToken() string {
 
 type session struct {
 	user    User
+	hash    string // password hash at login; a change ends the session
 	csrf    string
 	expires time.Time
 	created time.Time
+	flashOK string
+	flashEr string
 }
 
 type sessions struct {
@@ -281,7 +284,7 @@ func (s *sessions) create(u User, now time.Time) (string, *session) {
 		}
 	}
 	id := randToken()
-	ss := &session{user: u, csrf: randToken(), expires: now.Add(s.ttl), created: now}
+	ss := &session{user: u, hash: u.PasswordHash, csrf: randToken(), expires: now.Add(s.ttl), created: now}
 	s.m[id] = ss
 	return id, ss
 }
@@ -304,4 +307,44 @@ func (s *sessions) delete(id string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	delete(s.m, id)
+}
+
+// deleteUser ends every session of name except keep.
+func (s *sessions) deleteUser(name, keep string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for k, v := range s.m {
+		if v.user.Username == name && k != keep {
+			delete(s.m, k)
+		}
+	}
+}
+
+func (s *sessions) setHash(id, hash string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if ss := s.m[id]; ss != nil {
+		ss.hash = hash
+		ss.user.PasswordHash = hash
+	}
+}
+
+func (s *sessions) setFlash(id, ok, er string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if ss := s.m[id]; ss != nil {
+		ss.flashOK, ss.flashEr = ok, er
+	}
+}
+
+func (s *sessions) popFlash(id string) (string, string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	ss := s.m[id]
+	if ss == nil {
+		return "", ""
+	}
+	ok, er := ss.flashOK, ss.flashEr
+	ss.flashOK, ss.flashEr = "", ""
+	return ok, er
 }

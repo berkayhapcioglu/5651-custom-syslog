@@ -13,7 +13,6 @@ package web
 
 import (
 	"archive/zip"
-	"bufio"
 	"bytes"
 	"context"
 	"crypto/subtle"
@@ -29,96 +28,56 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"sort"
+	"regexp"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/berkayhapcioglu/5651-custom-syslog/internal/config"
+	"github.com/berkayhapcioglu/5651-custom-syslog/internal/ingest"
 	"github.com/berkayhapcioglu/5651-custom-syslog/internal/store"
 )
 
 //go:embed templates/*.html static/*
 var assets embed.FS
 
-// LastSeen tracks the latest record per tenant/device.
-type LastSeen struct {
-	mu sync.Mutex
-	m  map[string]map[string]time.Time
-}
-
-// NewLastSeen creates an empty tracker.
-func NewLastSeen() *LastSeen { return &LastSeen{m: map[string]map[string]time.Time{}} }
-
-// Mark records t for tenant/device.
-func (l *LastSeen) Mark(tenant, device string, t time.Time) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	d := l.m[tenant]
-	if d == nil {
-		d = map[string]time.Time{}
-		l.m[tenant] = d
-	}
-	d[device] = t
-}
-
-func (l *LastSeen) get(tenant string) map[string]time.Time {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	out := map[string]time.Time{}
-	for k, v := range l.m[tenant] {
-		out[k] = v
-	}
-	return out
-}
-
 // Server is the web UI.
 type Server struct {
 	Cfg      *config.Config
-	Users    map[string]User
 	Log      *slog.Logger
 	Seen     *LastSeen
 	Roots    *x509.CertPool
 	Stats    func() map[string]int64
+	Unknown  *ingest.Unknown
+	Started  time.Time
+	Version  string
 	Insecure bool
 
+	users  *userStore
 	sess   *sessions
 	limIP  *limiter
 	limUsr *limiter
 	tpl    *template.Template
+	sums   *sumCache
+	cpu    cpuSampler
 }
 
-// New builds the server.
-func New(cfg *config.Config, users map[string]User, log *slog.Logger, seen *LastSeen) (*Server, error) {
+// New builds the server. Users are read from cfg.Web.UsersFile and reloaded
+// when the file changes.
+func New(cfg *config.Config, log *slog.Logger, seen *LastSeen) (*Server, error) {
+	us, err := newUserStore(cfg.Web.UsersFile)
+	if err != nil {
+		return nil, err
+	}
 	s := &Server{
-		Cfg: cfg, Users: users, Log: log, Seen: seen,
+		Cfg: cfg, Log: log, Seen: seen, Started: time.Now(), Version: "dev",
 		Insecure: cfg.Web.AllowInsecureHTTP,
+		users:    us,
 		sess:     newSessions(cfg.Web.SessionTTL.Duration),
 		limIP:    newLimiter(),
 		limUsr:   newLimiter(),
+		sums:     newSumCache(),
 	}
-	funcs := template.FuncMap{
-		"ratio": func(raw, file int64) string {
-			if file == 0 {
-				return "-"
-			}
-			return fmt.Sprintf("%.1fx", float64(raw)/float64(file))
-		},
-		"bytes": humanBytes,
-		"ago": func(t time.Time) string {
-			if t.IsZero() {
-				return "-"
-			}
-			return time.Since(t).Round(time.Second).String()
-		},
-		"localtime": func(t time.Time) string {
-			if t.IsZero() {
-				return "-"
-			}
-			return t.In(cfg.Location()).Format("2006-01-02 15:04:05")
-		},
-	}
-	t, err := template.New("").Funcs(funcs).ParseFS(assets, "templates/*.html")
+	t, err := template.New("").Funcs(s.funcs()).ParseFS(assets, "templates/*.html")
 	if err != nil {
 		return nil, err
 	}
@@ -135,12 +94,28 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /login", s.loginPost)
 	mux.HandleFunc("POST /logout", s.auth(s.logout))
 	mux.HandleFunc("GET /{$}", s.auth(s.dashboard))
+	mux.HandleFunc("GET /t", s.auth(s.tenantsPage))
 	mux.HandleFunc("GET /t/{tenant}", s.auth(s.tenantPage))
 	mux.HandleFunc("GET /t/{tenant}/d/{day}", s.auth(s.dayPage))
 	mux.HandleFunc("POST /t/{tenant}/d/{day}/verify", s.auth(s.verifyDay))
+	mux.HandleFunc("POST /t/{tenant}/d/{day}/reindex", s.admin(s.reindexDay))
 	mux.HandleFunc("GET /t/{tenant}/d/{day}/package.zip", s.auth(s.packageZip))
 	mux.HandleFunc("GET /t/{tenant}/d/{day}/raw/{device}/{hour}", s.auth(s.rawHour))
 	mux.HandleFunc("GET /t/{tenant}/search", s.auth(s.search))
+	mux.HandleFunc("GET /search", s.auth(s.search))
+	mux.HandleFunc("GET /account", s.auth(s.accountPage))
+	mux.HandleFunc("POST /account/password", s.auth(s.accountPassword))
+	mux.HandleFunc("GET /admin/sources", s.admin(s.sourcesPage))
+	mux.HandleFunc("POST /admin/sources/tenant", s.admin(s.tenantSave))
+	mux.HandleFunc("POST /admin/sources/tenant/delete", s.admin(s.tenantDelete))
+	mux.HandleFunc("POST /admin/sources/add", s.admin(s.sourceAdd))
+	mux.HandleFunc("POST /admin/sources/remove", s.admin(s.sourceRemove))
+	mux.HandleFunc("GET /admin/users", s.admin(s.usersPage))
+	mux.HandleFunc("POST /admin/users/save", s.admin(s.userSave))
+	mux.HandleFunc("POST /admin/users/delete", s.admin(s.userDelete))
+	mux.HandleFunc("GET /admin/settings", s.admin(s.settingsPage))
+	mux.HandleFunc("POST /admin/settings", s.admin(s.settingsSave))
+	mux.HandleFunc("GET /admin/audit", s.admin(s.auditPage))
 	return s.secure(mux)
 }
 
@@ -174,6 +149,7 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 		defer cancel()
 		srv.Shutdown(c)
 	}()
+	go s.cpu.run(ctx)
 	s.Log.Info("web listening", "addr", s.Cfg.Web.Listen, "tls", !s.Insecure)
 	var err error
 	if s.Insecure {
@@ -233,6 +209,16 @@ func (s *Server) auth(next func(http.ResponseWriter, *http.Request, *session)) h
 		if err == nil {
 			ss = s.sess.get(c.Value, time.Now())
 		}
+		if ss != nil {
+			// The user may have been deleted, changed or given a new password.
+			u, ok := s.users.get(ss.user.Username)
+			if !ok || u.PasswordHash != ss.hash {
+				s.sess.delete(c.Value)
+				ss = nil
+			} else {
+				ss.user = u
+			}
+		}
 		if ss == nil {
 			http.Redirect(w, r, "/login", http.StatusSeeOther)
 			return
@@ -290,7 +276,7 @@ func (s *Server) loginPage(w http.ResponseWriter, r *http.Request) {
 		Name: s.cookieName() + "-login", Value: tok, Path: "/", MaxAge: 600,
 		Secure: !s.Insecure, HttpOnly: true, SameSite: http.SameSiteStrictMode,
 	})
-	s.render(w, "login.html", map[string]any{"CSRF": tok, "Error": r.URL.Query().Get("e") == "1"})
+	s.render(w, "login.html", map[string]any{"CSRF": tok, "Error": r.URL.Query().Get("e") == "1", "Version": s.Version})
 }
 
 func (s *Server) loginPost(w http.ResponseWriter, r *http.Request) {
@@ -313,7 +299,7 @@ func (s *Server) loginPost(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "too many failed attempts, try again later", http.StatusTooManyRequests)
 		return
 	}
-	u, ok := s.Users[name]
+	u, ok := s.users.get(name)
 	hash := dummyHash
 	if ok {
 		hash = u.PasswordHash
@@ -356,7 +342,7 @@ func (s *Server) logout(w http.ResponseWriter, r *http.Request, ss *session) {
 
 func (s *Server) visibleTenants(u User) []config.Tenant {
 	var out []config.Tenant
-	for _, t := range s.Cfg.Tenants {
+	for _, t := range s.Cfg.TenantList() {
 		if s.canSee(u, t.ID) {
 			out = append(out, t)
 		}
@@ -408,92 +394,9 @@ func (s *Server) dayParam(w http.ResponseWriter, r *http.Request, tenant string)
 
 // ---- pages ----
 
-type tenantRow struct {
-	T          config.Tenant
-	Devices    int
-	LastSeen   time.Time
-	LastSealed string
-	StampTime  string
-	Days       int
-	Problem    string
-}
-
-func (s *Server) dashboard(w http.ResponseWriter, r *http.Request, ss *session) {
-	var rows []tenantRow
-	for _, t := range s.visibleTenants(ss.user) {
-		row := tenantRow{T: t}
-		seen := s.Seen.get(t.ID)
-		row.Devices = len(seen)
-		for _, v := range seen {
-			if v.After(row.LastSeen) {
-				row.LastSeen = v
-			}
-		}
-		days, _ := store.ListDays(s.Cfg.DataDir, t.ID)
-		row.Days = len(days)
-		for i := len(days) - 1; i >= 0; i-- {
-			dir := store.DayDir(s.Cfg.DataDir, t.ID, days[i])
-			if info, err := store.ReadSealedInfo(dir); err == nil {
-				row.LastSealed = days[i]
-				row.StampTime = info.StampTime
-				break
-			}
-		}
-		if row.LastSeen.IsZero() || time.Since(row.LastSeen) > time.Hour {
-			row.Problem = "Son 1 saatte log gelmedi"
-		}
-		rows = append(rows, row)
-	}
-	data := map[string]any{"User": ss.user, "CSRF": ss.csrf, "Rows": rows}
-	if ss.user.Role == RoleAdmin && s.Stats != nil {
-		data["Stats"] = s.Stats()
-	}
-	s.render(w, "dashboard.html", data)
-}
-
-type dayRow struct {
-	Day       string
-	Sealed    bool
-	StampTime string
-	Files     int
-	Lines     int64
-	Raw       int64
-	Stored    int64
-}
-
-func (s *Server) tenantPage(w http.ResponseWriter, r *http.Request, ss *session) {
-	t, ok := s.tenantParam(w, r, ss)
-	if !ok {
-		return
-	}
-	days, _ := store.ListDays(s.Cfg.DataDir, t.ID)
-	var rows []dayRow
-	for i := len(days) - 1; i >= 0; i-- {
-		dir := store.DayDir(s.Cfg.DataDir, t.ID, days[i])
-		row := dayRow{Day: days[i], Sealed: store.IsSealed(dir)}
-		if info, err := store.ReadSealedInfo(dir); err == nil {
-			row.StampTime = info.StampTime
-		}
-		hours, _ := store.ReadHours(dir)
-		for _, h := range hours {
-			row.Files++
-			row.Lines += h.Lines
-			row.Raw += h.RawBytes
-			row.Stored += h.FileBytes
-		}
-		rows = append(rows, row)
-	}
-	seen := s.Seen.get(t.ID)
-	type dev struct {
-		Name string
-		Last time.Time
-	}
-	var devs []dev
-	for k, v := range seen {
-		devs = append(devs, dev{k, v})
-	}
-	sort.Slice(devs, func(i, j int) bool { return devs[i].Name < devs[j].Name })
-	s.render(w, "tenant.html", map[string]any{"User": ss.user, "CSRF": ss.csrf, "T": t, "Days": rows, "Devices": devs})
+type hourRow struct {
+	store.HourEntry
+	Indexed bool
 }
 
 func (s *Server) dayPage(w http.ResponseWriter, r *http.Request, ss *session) {
@@ -506,14 +409,23 @@ func (s *Server) dayPage(w http.ResponseWriter, r *http.Request, ss *session) {
 		return
 	}
 	hours, err := store.ReadHours(dir)
-	data := map[string]any{"User": ss.user, "CSRF": ss.csrf, "T": t, "Day": day, "Hours": hours, "Sealed": store.IsSealed(dir)}
+	var rows []hourRow
+	var sum daySum
+	for _, h := range hours {
+		_, ierr := os.Stat(store.IndexPath(dir, h.Device, h.Hour)) // #nosec G703 -- validated entry under day dir
+		rows = append(rows, hourRow{h, ierr == nil})
+		sum.Lines += h.Lines
+		sum.Raw += h.RawBytes
+		sum.Stored += h.FileBytes
+	}
+	data := map[string]any{"T": t, "Day": day, "Hours": rows, "Sum": sum, "Sealed": store.IsSealed(dir), "Labels": deviceLabels(t, hours)}
 	if err != nil {
 		data["Error"] = err.Error()
 	}
 	if info, err := store.ReadSealedInfo(dir); err == nil {
 		data["Info"] = info
 	}
-	s.render(w, "day.html", data)
+	s.render(w, "day.html", s.page(r, ss, "tenants", data))
 }
 
 func (s *Server) verifyDay(w http.ResponseWriter, r *http.Request, ss *session) {
@@ -527,11 +439,43 @@ func (s *Server) verifyDay(w http.ResponseWriter, r *http.Request, ss *session) 
 	}
 	rep, err := store.VerifyDay(s.Cfg.DataDir, t.ID, day, s.Roots, s.Cfg.Timestamp.Mode != "none")
 	s.audit(r, ss.user.Username, "verify", "tenant", t.ID, "day", day, "ok", err == nil)
-	data := map[string]any{"User": ss.user, "CSRF": ss.csrf, "T": t, "Day": day, "Report": rep}
+	data := map[string]any{"T": t, "Day": day, "Report": rep}
 	if err != nil {
 		data["Error"] = err.Error()
 	}
-	s.render(w, "verify.html", data)
+	s.render(w, "verify.html", s.page(r, ss, "tenants", data))
+}
+
+// reindexDay rebuilds the search index of a day from its sealed files.
+func (s *Server) reindexDay(w http.ResponseWriter, r *http.Request, ss *session) {
+	t, ok := s.tenantParam(w, r, ss)
+	if !ok {
+		return
+	}
+	day, dir, ok := s.dayParam(w, r, t.ID)
+	if !ok {
+		return
+	}
+	hours, err := store.ReadHours(dir)
+	n := 0
+	for _, h := range hours {
+		if err != nil {
+			break
+		}
+		var raw []byte
+		if raw, err = store.ReadSealed(dir, h); err == nil {
+			_, err = store.WriteIndex(dir, h.Device, h.Hour, bytes.NewReader(raw))
+			n++
+		}
+	}
+	s.sums.forget(dir)
+	s.audit(r, ss.user.Username, "reindex", "tenant", t.ID, "day", day, "hours", n, "ok", err == nil)
+	path := "/t/" + t.ID + "/d/" + day
+	if err != nil {
+		s.flash(w, r, path, "", "Dizin oluşturulamadı: "+err.Error())
+		return
+	}
+	s.flash(w, r, path, fmt.Sprintf("%d saatin arama dizini yeniden oluşturuldu", n), "")
 }
 
 func (s *Server) packageZip(w http.ResponseWriter, r *http.Request, ss *session) {
@@ -615,109 +559,6 @@ func (s *Server) rawHour(w http.ResponseWriter, r *http.Request, ss *session) {
 	http.NotFound(w, r)
 }
 
-type hit struct {
-	Device string
-	Hour   string
-	Line   string
-}
-
-const (
-	maxQuery = 200
-	maxHits  = 500
-)
-
-func (s *Server) search(w http.ResponseWriter, r *http.Request, ss *session) {
-	t, ok := s.tenantParam(w, r, ss)
-	if !ok {
-		return
-	}
-	q := strings.TrimSpace(r.URL.Query().Get("q"))
-	day := r.URL.Query().Get("day")
-	device := r.URL.Query().Get("device")
-	data := map[string]any{"User": ss.user, "CSRF": ss.csrf, "T": t, "Q": q, "Day": day, "Device": device}
-	if day == "" {
-		day = time.Now().In(s.Cfg.Location()).Format(store.DayLayout)
-		data["Day"] = day
-	}
-	if q == "" {
-		s.render(w, "search.html", data)
-		return
-	}
-	if len(q) > maxQuery || !store.ValidDay(day) || (device != "" && !store.ValidDevice(device)) {
-		data["Error"] = "Geçersiz arama"
-		s.render(w, "search.html", data)
-		return
-	}
-	dir, err := store.SafeJoin(s.Cfg.DataDir, t.ID, day)
-	if err != nil {
-		http.NotFound(w, r)
-		return
-	}
-	s.audit(r, ss.user.Username, "search", "tenant", t.ID, "day", day, "device", device, "query", q)
-	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
-	defer cancel()
-	hits, truncated, err := searchDay(ctx, dir, device, []byte(q))
-	if err != nil {
-		data["Error"] = err.Error()
-	}
-	data["Hits"] = hits
-	data["Truncated"] = truncated
-	s.render(w, "search.html", data)
-}
-
-// searchDay scans sealed hours and current raw files of one day.
-func searchDay(ctx context.Context, dir, device string, q []byte) ([]hit, bool, error) {
-	var hits []hit
-	add := func(dev, hour string, data []byte) bool {
-		sc := bufio.NewScanner(bytes.NewReader(data))
-		sc.Buffer(make([]byte, 64*1024), 2<<20)
-		for sc.Scan() {
-			if bytes.Contains(sc.Bytes(), q) {
-				hits = append(hits, hit{dev, hour, sc.Text()})
-				if len(hits) >= maxHits {
-					return false
-				}
-			}
-		}
-		return true
-	}
-	hours, err := store.ReadHours(dir)
-	if err != nil {
-		return nil, false, err
-	}
-	for _, h := range hours {
-		if ctx.Err() != nil {
-			return hits, true, errors.New("arama zaman aşımına uğradı, aramayı daraltın")
-		}
-		if device != "" && h.Device != device {
-			continue
-		}
-		raw, err := store.ReadSealed(dir, h)
-		if err != nil {
-			return hits, false, err
-		}
-		if !add(h.Device, h.Hour, raw) {
-			return hits, true, nil
-		}
-	}
-	// Hours that are still open (not sealed yet).
-	raws, _ := filepath.Glob(filepath.Join(dir, "*", "*"+store.RawExt))
-	for _, p := range raws {
-		dev := filepath.Base(filepath.Dir(p))
-		if !store.ValidDevice(dev) || (device != "" && dev != device) {
-			continue
-		}
-		b, err := readLimited(dir, filepath.Join(dev, filepath.Base(p)), 2<<30)
-		if err != nil {
-			continue
-		}
-		if !add(dev, strings.TrimSuffix(filepath.Base(p), store.RawExt)+" (açık)", b) {
-			return hits, true, nil
-		}
-	}
-	return hits, false, nil
-}
-
 func readLimited(dir, rel string, n int64) ([]byte, error) {
 	f, err := os.OpenInRoot(dir, rel)
 	if err != nil {
@@ -739,3 +580,35 @@ func humanBytes(n int64) string {
 	}
 	return fmt.Sprintf("%.1f %ciB", float64(n)/float64(div), "KMGTPE"[exp])
 }
+
+// page fills the common template data: user, CSRF token, active menu item
+// and the flash message of the previous POST.
+func (s *Server) page(r *http.Request, ss *session, active string, data map[string]any) map[string]any {
+	if data == nil {
+		data = map[string]any{}
+	}
+	data["User"] = ss.user
+	data["CSRF"] = ss.csrf
+	data["Active"] = active
+	data["IsAdmin"] = ss.user.Role == RoleAdmin
+	data["Version"] = s.Version
+	ok, er := s.sess.popFlash(sessionIDOf(r, s))
+	data["FlashOK"], data["FlashErr"] = ok, er
+	return data
+}
+
+// flash stores a one-time message in the session and redirects (POST/redirect/GET).
+func (s *Server) flash(w http.ResponseWriter, r *http.Request, path, ok, er string) {
+	s.sess.setFlash(sessionIDOf(r, s), ok, er)
+	// Only local paths; a fragment is kept only when it is a plain anchor.
+	base, frag, _ := strings.Cut(path, "#")
+	if !strings.HasPrefix(base, "/") || strings.HasPrefix(base, "//") || strings.ContainsAny(base, "\\?") {
+		base = "/"
+	}
+	if frag != "" && anchorRe.MatchString(frag) {
+		base += "#" + frag
+	}
+	http.Redirect(w, r, base, http.StatusSeeOther) // #nosec G710 -- local path checked above
+}
+
+var anchorRe = regexp.MustCompile(`^[a-z0-9_-]{1,80}$`)

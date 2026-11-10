@@ -18,17 +18,26 @@ import (
 
 const testPassword = "dogru-at-pil-zimba-42"
 
+var lastServer *Server
+
 func testServer(t *testing.T) (*httptest.Server, string) {
 	t.Helper()
 	dir := t.TempDir()
 	for _, p := range []string{"musteri-a/2026-11-09", "musteri-b/2026-11-09"} {
 		os.MkdirAll(filepath.Join(dir, p), 0o750)
 	}
+	h, _ := HashPassword(testPassword)
+	if err := SaveUsers(filepath.Join(dir, "users.yaml"), &UsersFile{Users: []User{
+		{Username: "admin", PasswordHash: h, Role: RoleAdmin},
+		{Username: "ali", PasswordHash: h, Role: RoleTenant, Tenants: []string{"musteri-a"}},
+	}}); err != nil {
+		t.Fatal(err)
+	}
 	cfg, err := config.Parse([]byte(`
 data_dir: ` + dir + `
 listen: {udp: ":0"}
 timestamp: {mode: none}
-web: {listen: ":0", users_file: /dev/null, tls_cert: x, tls_key: y}
+web: {listen: ":0", users_file: ` + filepath.Join(dir, "users.yaml") + `, tls_cert: x, tls_key: y}
 tenants:
   - {id: musteri-a, name: A, sources: [10.0.0.0/24]}
   - {id: musteri-b, name: B, sources: [10.0.1.0/24]}
@@ -36,25 +45,21 @@ tenants:
 	if err != nil {
 		t.Fatal(err)
 	}
-	h, _ := HashPassword(testPassword)
-	users := map[string]User{
-		"admin": {Username: "admin", PasswordHash: h, Role: RoleAdmin},
-		"ali":   {Username: "ali", PasswordHash: h, Role: RoleTenant, Tenants: []string{"musteri-a"}},
-	}
-	s, err := New(cfg, users, slog.New(slog.NewTextHandler(io.Discard, nil)), NewLastSeen())
+	s, err := New(cfg, slog.New(slog.NewTextHandler(io.Discard, nil)), NewLastSeen())
 	if err != nil {
 		t.Fatal(err)
 	}
+	lastServer = s
 	ts := httptest.NewTLSServer(s.Handler())
 	t.Cleanup(ts.Close)
 	return ts, dir
 }
 
 func client(ts *httptest.Server) *http.Client {
-	c := ts.Client()
+	c := *ts.Client() // a copy: each client gets its own cookie jar
 	c.Jar, _ = cookiejar.New(nil)
 	c.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
-	return c
+	return &c
 }
 
 var csrfRe = regexp.MustCompile(`name="csrf" value="([^"]+)"`)

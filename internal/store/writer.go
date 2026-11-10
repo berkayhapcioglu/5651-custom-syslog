@@ -45,19 +45,21 @@ type Writer struct {
 	LastSeen func(tenant, device string, t time.Time)
 
 	files   map[string]*openFile
+	closed  map[string]string // last hour handed to Seal, per tenant/device
 	scratch []byte
 }
 
 // NewWriter creates a writer with a buffered input channel.
 func NewWriter(root string, loc *time.Location, log *slog.Logger, seal func(string)) *Writer {
 	return &Writer{
-		Root:  root,
-		Loc:   loc,
-		Log:   log,
-		In:    make(chan Record, 65536),
-		Seal:  seal,
-		Stats: &Stats{},
-		files: map[string]*openFile{},
+		Root:   root,
+		Loc:    loc,
+		Log:    log,
+		In:     make(chan Record, 65536),
+		Seal:   seal,
+		Stats:  &Stats{},
+		files:  map[string]*openFile{},
+		closed: map[string]string{},
 	}
 }
 
@@ -102,6 +104,17 @@ func (w *Writer) write(r Record) {
 	local := r.Received.In(w.Loc)
 	hour := local.Format("2006-01-02/15")
 	key := r.Tenant + "/" + device
+	// A record from an hour that was already closed (it waited in the queue
+	// across the hour boundary) goes into the current hour's file: reopening
+	// the closed file would race with its sealing. Its own receive time is
+	// kept in the record.
+	if c := w.closed[key]; c != "" && hour <= c {
+		local = time.Now().In(w.Loc)
+		if next, err := time.ParseInLocation("2006-01-02/15", c, w.Loc); err == nil && !local.After(next.Add(time.Hour)) {
+			local = next.Add(time.Hour) // the clock is behind the closed hour
+		}
+		hour = local.Format("2006-01-02/15")
+	}
 	of := w.files[key]
 	if of != nil && of.hour != hour {
 		w.close(key, of)
@@ -187,6 +200,7 @@ func (w *Writer) close(key string, of *openFile) {
 	of.f.Sync()
 	of.f.Close()
 	delete(w.files, key)
+	w.closed[key] = of.hour
 	if w.Seal != nil {
 		w.Seal(of.path)
 	}

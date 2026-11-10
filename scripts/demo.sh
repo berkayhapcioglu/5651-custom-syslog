@@ -29,8 +29,8 @@ compression: {codec: zstd}
 timestamp: {mode: none}
 web: {listen: "127.0.0.1:8443", tls_cert: $D/tls/server.crt, tls_key: $D/tls/server.key, users_file: $D/users.yaml}
 tenants:
-  - {id: musteri-a, name: "Örnek Lojistik A.Ş.", sources: [10.0.0.0/24, 127.0.0.1]}
-  - {id: musteri-b, name: "Deniz Otel Ltd.", sources: [10.0.1.0/24], retention_days: 365}
+  - {id: musteri-a, name: "Örnek Lojistik A.Ş.", sources: [10.0.0.0/24, 127.0.0.1], license_until: "2027-09-30"}
+  - {id: musteri-b, name: "Deniz Otel Ltd.", sources: [10.0.1.0/24], retention_days: 365, license_until: "2026-11-28"}
 CFG
 # Canlı log: birkaç saniyede bir örnek firewall satırı (musteri-a).
 ( sleep 2; i=0; while kill -0 $$ 2>/dev/null; do i=$((i+1))

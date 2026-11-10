@@ -60,17 +60,27 @@ if [ "$1" = "configure" ]; then
     chmod 0640 /etc/syslog5651/tls/server.key
     chmod 0644 /etc/syslog5651/tls/server.crt
   fi
-  if [ ! -f /etc/syslog5651/users.yaml ]; then
-    echo "users: []" > /etc/syslog5651/users.yaml
+  # Panel state and users live under the data dir: the service may only write there.
+  install -d -m 0700 -o syslog5651 -g syslog5651 /var/lib/syslog5651/_panel
+  U=/var/lib/syslog5651/_panel/users.yaml
+  if [ ! -f "$U" ]; then
+    if [ -f /etc/syslog5651/users.yaml ]; then
+      cp /etc/syslog5651/users.yaml "$U"   # from an earlier version
+    else
+      echo "users: []" > "$U"
+    fi
   fi
-  chown root:syslog5651 /etc/syslog5651/users.yaml
-  chmod 0640 /etc/syslog5651/users.yaml
+  chown syslog5651:syslog5651 "$U"
+  chmod 0600 "$U"
+  if grep -q "users_file: /etc/syslog5651/users.yaml" /etc/syslog5651/config.yaml; then
+    sed -i "s#users_file: /etc/syslog5651/users.yaml#users_file: $U#" /etc/syslog5651/config.yaml
+  fi
   systemctl daemon-reload >/dev/null 2>&1 || true
   systemctl enable syslog5651 >/dev/null 2>&1 || true
   echo ""
   echo "syslog5651 kuruldu. Sonraki adımlar:"
   echo "  1) sudo nano /etc/syslog5651/config.yaml   (müşteriler ve zaman damgası)"
-  echo "  2) sudo syslog5651 useradd -users /etc/syslog5651/users.yaml -name admin -role admin"
+  echo "  2) sudo syslog5651 useradd -name admin -role admin   (ilk yönetici; diğerleri panelden)"
   echo "  3) sudo systemctl restart syslog5651 && sudo systemctl status syslog5651"
   echo "Rehber: /usr/share/doc/syslog5651/KURULUM.md"
 fi

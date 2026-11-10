@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/berkayhapcioglu/5651-custom-syslog/internal/colz"
@@ -35,16 +36,28 @@ func (s *Sealer) SealHour(rawPath string) error {
 		return fmt.Errorf("seal: unexpected path %s", rawPath)
 	}
 	sealedPath := filepath.Join(filepath.Dir(rawPath), hour+SealedExt)
+	// The writer, start-up recovery and the day sealer may all ask for the
+	// same hour; only one may work on it at a time.
+	unlock := lockPath(rawPath)
+	defer unlock()
+	if _, err := os.Stat(rawPath); errors.Is(err, os.ErrNotExist) {
+		if listed, _ := HasHour(dayDir, device, hour); listed {
+			return nil // sealed by another caller meanwhile
+		}
+	}
 
 	// Crash recovery: sealed and listed already, only the raw delete was lost.
-	if _, err := os.Stat(sealedPath); err == nil {
-		listed, err := HasHour(dayDir, device, hour)
-		if err != nil {
-			return err
+	// A listed hour is never written again.
+	listed, err := HasHour(dayDir, device, hour)
+	if err != nil {
+		return err
+	}
+	if listed {
+		if _, err := os.Stat(sealedPath); err != nil {
+			return fmt.Errorf("seal %s: hour is listed but its sealed file is missing; raw kept", rawPath)
 		}
-		if listed {
-			return os.Remove(rawPath)
-		}
+		s.writeIndex(dayDir, device, hour, rawPath)
+		return os.Remove(rawPath)
 	}
 
 	rawSum, rawBytes, lines, err := hashFile(rawPath)
@@ -89,9 +102,58 @@ func (s *Sealer) SealHour(rawPath string) error {
 	if err != nil {
 		return err
 	}
+	s.writeIndex(dayDir, device, hour, rawPath)
 	s.Log.Info("sealed hour", "file", sealedPath, "raw_bytes", rawBytes, "sealed_bytes", buf.Len(),
 		"ratio", fmt.Sprintf("%.1f", float64(rawBytes)/float64(max(buf.Len(), 1))))
 	return os.Remove(rawPath)
+}
+
+var (
+	pathLocksMu sync.Mutex
+	pathLocks   = map[string]*pathLock{}
+)
+
+type pathLock struct {
+	mu   sync.Mutex
+	refs int
+}
+
+// lockPath serializes work on one file path and returns the unlock function.
+func lockPath(p string) func() {
+	pathLocksMu.Lock()
+	l := pathLocks[p]
+	if l == nil {
+		l = &pathLock{}
+		pathLocks[p] = l
+	}
+	l.refs++
+	pathLocksMu.Unlock()
+	l.mu.Lock()
+	return func() {
+		l.mu.Unlock()
+		pathLocksMu.Lock()
+		if l.refs--; l.refs == 0 {
+			delete(pathLocks, p)
+		}
+		pathLocksMu.Unlock()
+	}
+}
+
+// writeIndex builds the search index from the raw file. Failure is only
+// logged: the index is optional and never part of the seal.
+func (s *Sealer) writeIndex(dayDir, device, hour, rawPath string) {
+	if _, err := os.Stat(IndexPath(dayDir, device, hour)); err == nil {
+		return
+	}
+	f, err := os.Open(rawPath) // #nosec G304 -- validated path under data dir
+	if err != nil {
+		s.Log.Warn("search index", "file", rawPath, "err", err)
+		return
+	}
+	defer f.Close()
+	if _, err := WriteIndex(dayDir, device, hour, f); err != nil {
+		s.Log.Warn("search index", "file", rawPath, "err", err)
+	}
 }
 
 func (s *Sealer) encode(w io.Writer, rawPath string, plain bool) error {

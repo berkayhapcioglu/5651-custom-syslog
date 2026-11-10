@@ -1,21 +1,37 @@
-{{template "head" "Arama"}}
+{{template "head" "Log arama"}}
 {{template "nav" .}}
-<p class="crumbs"><a href="/">Müşteriler</a> / <a href="/t/{{.T.ID}}">{{.T.Name}}</a> / Arama</p>
-<h1>Log ara · {{.T.Name}}</h1>
-<form method="get" action="/t/{{.T.ID}}/search" class="card row">
-  <label>Gün <input name="day" value="{{.Day}}" pattern="\d{4}-\d{2}-\d{2}" required></label>
-  <label>Cihaz (opsiyonel) <input name="device" value="{{.Device}}" maxlength="64"></label>
-  <label class="grow">Aranan metin <input name="q" value="{{.Q}}" maxlength="200" required></label>
-  <button type="submit">Ara</button>
-</form>
-{{if .Error}}<p class="err">{{.Error}}</p>{{end}}
-{{if .Q}}
-  <p>{{len .Hits}} sonuç{{if .Truncated}} (ilk {{len .Hits}} sonuç gösteriliyor, aramayı daraltın){{end}}</p>
-  <table class="log">
-    <thead><tr><th>Cihaz</th><th>Saat</th><th>Kayıt</th></tr></thead>
-    <tbody>
-    {{range .Hits}}<tr><td>{{.Device}}</td><td>{{.Hour}}</td><td><code>{{.Line}}</code></td></tr>{{end}}
-    </tbody>
-  </table>
-{{end}}
+{{if .T}}<ol class="crumbs"><li><a href="/t">Müşteriler</a></li><li><a href="/t/{{.T.ID}}">{{.T.Name}}</a></li><li aria-current="page">Arama</li></ol>{{end}}
+<div class="page-head"><div><h1>Log arama</h1><p class="sub">Mühürlü dosyalar salt okunur açılır; arama mührü etkilemez.</p></div></div>
+<section class="panel">
+  <form class="toolbar" method="get" action="/search">
+    <label>Müşteri <select name="tenant" required>{{if not .T}}<option value="">Seçin</option>{{end}}{{range .Tenants}}<option value="{{.ID}}"{{if $.T}}{{if eq .ID $.T.ID}} selected{{end}}{{end}}>{{.Name}}</option>{{end}}</select></label>
+    <label>Başlangıç <input type="date" name="from" value="{{.Req.From}}" required></label>
+    <label>Bitiş <input type="date" name="to" value="{{.Req.To}}" required></label>
+    <label>Saat <span class="actions"><select name="hfrom" aria-label="Başlangıç saati">{{range $i, $h := .Hours}}<option value="{{$h}}"{{if eq $i $.Req.HFrom}} selected{{end}}>{{$h}}:00</option>{{end}}</select><select name="hto" aria-label="Bitiş saati">{{range $i, $h := .Hours}}<option value="{{$h}}"{{if eq $i $.Req.HTo}} selected{{end}}>{{$h}}:59</option>{{end}}</select></span></label>
+    <label>Cihaz <select name="device"><option value="">Tümü</option>{{range .DeviceList}}<option value="{{.Name}}"{{if eq .Name $.Req.Device}} selected{{end}}>{{.Name}}{{if .Label}} · {{.Label}}{{end}}</option>{{end}}</select></label>
+    <label class="grow">Aranan <input name="q" value="{{.Req.Q}}" maxlength="200" required placeholder="ör. 192.168.1.20, srcip=10.0.0.5, kullanici@firma.com"></label>
+    <label>Eşleşme <select name="mode"><option value="word">Tam kelime (hızlı)</option><option value="text"{{if .Req.Text}} selected{{end}}>Metnin içinde (yavaş)</option></select></label>
+    <label>Sıra <select name="order"><option value="desc">Yeniden eskiye</option><option value="asc"{{if .Req.Asc}} selected{{end}}>Eskiden yeniye</option></select></label>
+    <button type="submit">Ara</button>
+  </form>
+  {{if .Error}}<div class="panel-body"><div class="alert err"><span>!</span><div><b>{{.Error}}</b></div></div></div>{{end}}
+  {{if .Searched}}
+    <div class="panel-head"><div><h2>{{len .Hits}} sonuç{{if .Truncated}} (ilk {{len .Hits}}, aramayı daraltın){{end}}</h2>
+    <p>{{.Stats.Hours}} saat incelendi · {{.Stats.Skipped}} saat arama dizini sayesinde açılmadan atlandı · {{.Stats.Read}} saat açıldı · {{.Stats.Elapsed}}</p></div></div>
+    {{if .Hits}}
+    <div class="table-wrap"><table class="data log">
+      <thead><tr><th>Zaman</th><th>Cihaz</th><th>Kayıt</th></tr></thead>
+      <tbody>{{range .Hits}}<tr><td class="nowrap">{{localtime .Time}}</td><td class="nowrap">{{.Device}}{{if .Label}}<small>{{.Label}}</small>{{end}}</td><td><code>{{.Line}}</code></td></tr>{{end}}</tbody>
+    </table></div>
+    {{else}}<div class="empty"><b>Sonuç bulunamadı</b><p>“{{.Req.Q}}” seçilen aralıkta geçmiyor. Tarihleri genişletmeyi ya da “Metnin içinde” eşleşmesini deneyin.</p></div>{{end}}
+  {{else if not .T}}
+    <div class="empty"><b>Müşteri seçin</b><p>Arama tek müşterinin logları içinde yapılır.</p></div>
+  {{else}}
+    <div class="panel-body help">
+      <p><b>Tam kelime</b> araması IP adresi, kullanıcı adı, cihaz adı gibi bütün kelimeleri arar ve arama dizinini kullanır; aylarca geriye hızlı bakar. Örnek: <code>192.168.1.20</code>, <code>srcip=10.0.0.5</code>, <code>action=deny</code>.</p>
+      <p><b>Metnin içinde</b> araması kelimenin bir parçasını da bulur (ör. <code>192.168.1.</code>) ama her saati açtığı için yavaştır.</p>
+      <p>Her arama denetim kaydına yazılır.</p>
+    </div>
+  {{end}}
+</section>
 {{template "foot"}}

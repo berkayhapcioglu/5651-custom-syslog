@@ -1,13 +1,18 @@
 {{template "head" "Giriş"}}
-<main class="narrow">
-  <h1>5651 Log Yönetimi</h1>
-  {{if .Error}}<p class="err">Kullanıcı adı veya şifre hatalı.</p>{{end}}
-  <form method="post" action="/login" class="card">
-    <input type="hidden" name="csrf" value="{{.CSRF}}">
-    <label>Kullanıcı adı <input name="username" autocomplete="username" required maxlength="64" autofocus></label>
-    <label>Şifre <input name="password" type="password" autocomplete="current-password" required maxlength="1024"></label>
-    <button type="submit">Giriş yap</button>
-  </form>
-</main>
+<main class="auth"><div class="box">
+  <div class="brand"><span class="logo">5651</span>5651 Log</div>
+  <div class="panel"><div class="panel-body">
+    <h1>Oturum açın</h1>
+    <p class="sub">Log saklama ve mühür paneli</p>
+    {{if .Error}}<div class="alert err" role="alert"><span>!</span><div><b>Kullanıcı adı veya şifre hatalı.</b><p>Çok sayıda hatalı denemede giriş bir süre kilitlenir.</p></div></div>{{end}}
+    <form method="post" action="/login" class="form-stack">
+      <input type="hidden" name="csrf" value="{{.CSRF}}">
+      <label>Kullanıcı adı <input name="username" autocomplete="username" required maxlength="64" autofocus></label>
+      <label>Şifre <input name="password" type="password" autocomplete="current-password" required maxlength="1024"></label>
+      <button type="submit">Giriş yap</button>
+    </form>
+  </div></div>
+  <p class="note">Bağlantı TLS ile şifrelidir · {{.Version}}</p>
+</div></main>
 </body>
 </html>

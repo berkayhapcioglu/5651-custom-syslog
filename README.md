@@ -13,6 +13,15 @@ Kurulum için: [KURULUM.md](KURULUM.md)
 3. **Saatlik mühür:** Biten saat sütunlu formatta sıkıştırılır (`.s5651`), açılıp ham dosyanın SHA-256'sıyla karşılaştırılır, `hours.jsonl` dosyasına hash zinciriyle eklenir, ardından ham dosya silinir.
 4. **Günlük mühür:** Gün bitince müşteri başına bir `manifest.json` (tüm dosyaların hash'leri, önceki günün manifest hash'i) oluşturulur ve RFC 3161 zaman damgası alınır (`manifest.json.tsr`). Müşteri başına günde 1 damga harcanır.
 5. **Saklama:** Varsayılan 730 gün, müşteri bazında değiştirilebilir. Silmeden önce denetim kaydı yazılır; mühürlenmemiş gün hiçbir zaman silinmez.
+6. **Arama indeksi:** Her mühürlü saat için küçük bir Bloom filtresi (`.idx`) yazılır. Mühürün dışında durur, kaybolursa yeniden oluşturulur; aranan kelimenin geçmediği saatler hiç açılmaz.
+
+## Web paneli
+
+- **Genel bakış:** son 24 saat ve 30 günün log grafikleri, müşteri tablosu (son log, disk kullanımı, sıkıştırma oranı, lisans, mühür durumu; sütuna tıklayarak sıralama), sunucu durumu (çalışma süresi, disk, RAM, CPU, sertifika ve zaman damgası süreleri) ve dikkat isteyen durumlar.
+- **Müşteri ve gün sayfaları:** tarih aralığı ve duruma göre filtre, saatlik dosyalar, cihaz adları, bütünlük doğrulama, denetim için zip paketi.
+- **Arama:** tarih ve saat aralığı, cihaz, tam kelime ya da metin içinde.
+- **Log kaynakları:** müşteri ekleme, firewall IP'si ekleme/kaldırma, bilinmeyen kaynaklar, saklama süresi ve lisans tarihi. Yeniden başlatma gerekmez.
+- **Kullanıcılar, Hesabım, Ayarlar, Denetim kaydı.**
 
 ## Sıkıştırma
 

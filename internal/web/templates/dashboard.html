@@ -1,27 +1,63 @@
-{{template "head" "Müşteriler"}}
+{{template "head" "Genel bakış"}}
 {{template "nav" .}}
-<h1>Müşteriler</h1>
-<table>
-  <thead><tr><th>Müşteri</th><th>Cihaz</th><th>Son log</th><th>Son mühürlenen gün</th><th>Zaman damgası</th><th>Durum</th></tr></thead>
+<div class="page-head">
+  <div><h1>Genel bakış</h1><p class="sub">{{localtime .Now}} itibarıyla · {{len .Rows}} müşteri, {{.Devices}} cihaz</p></div>
+  <div class="actions">{{if .IsAdmin}}<a class="btn secondary" href="/admin/sources">Log kaynağı ekle</a>{{end}}<a class="btn" href="/search">Log ara</a></div>
+</div>
+{{if .Alerts}}<div class="alert warn" role="status"><span>⚠</span><div><b>{{.Problems}} müşteride dikkat gerekiyor</b>{{range .Alerts}}<p>{{.}}</p>{{end}}</div></div>{{end}}
+<div class="stats">
+  <div class="stat"><div class="label">Bugün gelen log</div><div class="value">{{thousands .Today}}</div><div class="foot">son 30 günde {{thousands .Daily.Total}}</div></div>
+  <div class="stat {{if eq .SealedYesterday .WithYesterday}}ok{{else}}warn{{end}}"><div class="label">Son mühür</div><div class="value">{{if .LastSealed}}{{daytr .LastSealed}}{{else}}-{{end}}</div><div class="foot">{{if .WithYesterday}}{{.SealedYesterday}}/{{.WithYesterday}} müşterinin dünü mühürlü{{else}}dün log gelmedi{{end}}{{if .LastStamp}} · damga {{stamp .LastStamp}}{{end}}</div></div>
+  <div class="stat"><div class="label">Saklanan veri</div><div class="value">{{bytes .Disk}}</div><div class="foot">ham {{bytes .Raw}} · {{ratio .Raw .Disk}} sıkıştırma</div></div>
+  {{with .Status}}
+  <div class="stat {{.DiskClass}}"><div class="label">Sunucu diski</div><div class="value">{{bytes .DiskFree}} <small>boş</small></div><div class="foot">toplam {{bytes .DiskTotal}}</div><div class="meter {{level .DiskUsedPercent}} {{mclass .DiskUsedPercent}}"><i></i></div></div>
+  {{end}}
+</div>
+{{with .Status}}
+<div class="stats">
+  <div class="stat {{level .Sys.CPUPercent}}"><div class="label">CPU</div><div class="value">%{{pct .Sys.CPUPercent}}</div><div class="foot">{{.Sys.CPUs}} çekirdek · yük {{printf "%.2f" .Sys.Load1}}</div><div class="meter {{level .Sys.CPUPercent}} {{mclass .Sys.CPUPercent}}"><i></i></div></div>
+  <div class="stat {{level .Sys.MemPercent}}"><div class="label">RAM</div><div class="value">%{{pct .Sys.MemPercent}}</div><div class="foot">{{bytes .Sys.MemUsed}} / {{bytes .Sys.MemTotal}} · servis {{bytes .Sys.ProcRSS}}</div><div class="meter {{level .Sys.MemPercent}} {{mclass .Sys.MemPercent}}"><i></i></div></div>
+  <div class="stat ok"><div class="label">Çalışma süresi</div><div class="value">{{dur .Uptime}}</div><div class="foot">{{if .SystemUptime}}sunucu {{dur .SystemUptime}}dir açık{{else}}servis {{localtime .Started}} başladı{{end}}</div></div>
+  <div class="stat {{if eq .StampMode "none"}}err{{else if .StampCert}}{{.StampCert.Class}}{{else}}ok{{end}}"><div class="label">Zaman damgası</div><div class="value sm">{{if eq .StampMode "none"}}Kapalı{{else if .StampLast}}{{stamp .StampLast}}{{else}}Henüz yok{{end}}</div><div class="foot">{{if eq .StampMode "none"}}5651 için zaman damgası gerekir{{else if .StampCert}}TSA sertifikası {{.StampCert.Days}} gün geçerli{{else}}mod: {{.StampMode}}{{end}}</div></div>
+</div>
+{{end}}
+<div class="grid-2">
+  <section class="panel"><div class="panel-head"><div><h2>Son 24 saat</h2><p>Saatlik gelen log, tüm müşteriler · toplam {{thousands .Hourly.Total}}</p></div></div><div class="panel-body chart">{{template "chart" .Hourly}}</div></section>
+  <section class="panel"><div class="panel-head"><div><h2>Son 30 gün</h2><p>Günlük gelen log · toplam {{thousands .Daily.Total}}</p></div></div><div class="panel-body chart">{{template "chart" .Daily}}</div></section>
+</div>
+<section class="panel">
+  <div class="panel-head"><div><h2>Müşteriler</h2><p>Varsayılan sıralama: sorunlu olanlar üstte</p></div><a class="btn secondary sm" href="/t">Tümünü gör</a></div>
+  {{template "tenanttable" .}}
+</section>
+{{template "foot"}}
+
+{{define "tenanttable"}}
+<div class="table-wrap"><table class="data">
+  <thead><tr>
+    <th aria-sort="{{ariasort .Sort "name"}}"><a href="?sort={{sortlink .Sort "name"}}">Müşteri</a></th>
+    <th>Cihaz</th>
+    <th aria-sort="{{ariasort .Sort "last"}}"><a href="?sort={{sortlink .Sort "last"}}">Son log</a></th>
+    <th>Son mühürlü gün</th>
+    <th class="num" aria-sort="{{ariasort .Sort "today"}}"><a href="?sort={{sortlink .Sort "today"}}">Bugün</a></th>
+    <th class="num" aria-sort="{{ariasort .Sort "disk"}}"><a href="?sort={{sortlink .Sort "disk"}}">Disk</a></th>
+    <th class="num" aria-sort="{{ariasort .Sort "license"}}"><a href="?sort={{sortlink .Sort "license"}}">Lisans</a></th>
+    <th aria-sort="{{ariasort .Sort "status"}}"><a href="?sort={{sortlink .Sort "status"}}">Durum</a></th>
+  </tr></thead>
   <tbody>
   {{range .Rows}}
     <tr>
-      <td><a href="/t/{{.T.ID}}">{{.T.Name}}</a><br><small>{{.T.ID}}</small></td>
-      <td>{{.Devices}}</td>
-      <td>{{localtime .LastSeen}}</td>
-      <td>{{if .LastSealed}}<a href="/t/{{.T.ID}}/d/{{.LastSealed}}">{{.LastSealed}}</a>{{else}}-{{end}}</td>
-      <td>{{if .StampTime}}{{.StampTime}}{{else}}-{{end}}</td>
-      <td>{{if .Problem}}<span class="warn">{{.Problem}}</span>{{else}}<span class="ok">Normal</span>{{end}}</td>
+      <td><a class="primary" href="/t/{{.T.ID}}">{{.T.Name}}</a><small>{{.T.ID}}</small></td>
+      <td>{{.Devices}} cihaz</td>
+      <td class="nowrap">{{ago .LastSeen}}</td>
+      <td class="nowrap">{{if .Usage.LastSealed}}<a href="/t/{{.T.ID}}/d/{{.Usage.LastSealed}}">{{daytr .Usage.LastSealed}}</a><small>{{if .Usage.StampTime}}damga {{stamp .Usage.StampTime}}{{else}}damgasız{{end}}</small>{{else}}-{{end}}</td>
+      <td class="num">{{thousands .Today}}</td>
+      <td class="num">{{bytes .Usage.Disk}}</td>
+      <td class="num {{.License.Class}}">{{.License.Text}}</td>
+      <td><span class="badge {{.Level}}">{{.Problem}}</span></td>
     </tr>
   {{else}}
-    <tr><td colspan="6">Görebileceğiniz müşteri yok.</td></tr>
+    <tr><td colspan="8"><div class="empty"><b>Görebileceğiniz müşteri yok</b><p>{{if .IsAdmin}}<a href="/admin/sources">Log kaynakları</a> sayfasından ilk müşteriyi ekleyin.{{else}}Yöneticinizden hesabınıza müşteri atamasını isteyin.{{end}}</p></div></td></tr>
   {{end}}
   </tbody>
-</table>
-{{with .Stats}}
-<h2>Servis</h2>
-<table class="kv">
-  {{range $k, $v := .}}<tr><th>{{$k}}</th><td>{{$v}}</td></tr>{{end}}
-</table>
+</table></div>
 {{end}}
-{{template "foot"}}

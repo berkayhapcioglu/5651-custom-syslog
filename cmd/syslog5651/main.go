@@ -6,7 +6,7 @@
 //	syslog5651 run       -config /etc/syslog5651/config.yaml
 //	syslog5651 verify    -config ... -tenant musteri-a -day 2026-11-10
 //	syslog5651 seal-day  -config ... -tenant musteri-a -day 2026-11-10
-//	syslog5651 useradd   -users /etc/syslog5651/users.yaml -name ali -role tenant -tenants musteri-a
+//	syslog5651 useradd   -name ali -role tenant -tenants musteri-a
 //	syslog5651 version
 package main
 
@@ -120,8 +120,9 @@ func roots(c *config.Config) (*x509.CertPool, error) {
 }
 
 func tenantIDs(c *config.Config) []string {
-	ids := make([]string, len(c.Tenants))
-	for i, t := range c.Tenants {
+	tl := c.TenantList()
+	ids := make([]string, len(tl))
+	for i, t := range tl {
 		ids[i] = t.ID
 	}
 	return ids
@@ -181,6 +182,7 @@ func cmdRun(args []string) error {
 	}
 
 	seen := web.NewLastSeen()
+	seen.Seed(cfg.DataDir, tenantIDs(cfg), cfg.Location(), time.Now())
 	w := store.NewWriter(cfg.DataDir, cfg.Location(), log, func(p string) { jobs <- p })
 	w.LastSeen = seen.Mark
 	writerStop := make(chan struct{})
@@ -190,6 +192,7 @@ func cmdRun(args []string) error {
 	srv := &ingest.Server{
 		Resolve: cfg.Resolve, Out: w.In, Log: log, MaxMsg: cfg.MaxMessageBytes,
 		MaxConns: cfg.Listen.MaxTCPConns, IdleTimeout: cfg.Listen.TCPIdleTimeout.Duration,
+		Unknown: ingest.NewUnknown(1000),
 	}
 	errc := make(chan error, 4)
 	var lis sync.WaitGroup
@@ -224,15 +227,13 @@ func cmdRun(args []string) error {
 	go retentionLoop(ctx, cfg, log)
 
 	if cfg.Web.Listen != "" {
-		users, err := web.LoadUsers(cfg.Web.UsersFile)
-		if err != nil {
-			return err
-		}
-		ws, err := web.New(cfg, users, log, seen)
+		ws, err := web.New(cfg, log, seen)
 		if err != nil {
 			return err
 		}
 		ws.Roots = rp
+		ws.Unknown = srv.Unknown
+		ws.Version = version
 		ws.Stats = func() map[string]int64 {
 			return map[string]int64{
 				"Alınan kayıt":               w.Stats.Records.Load(),
@@ -280,7 +281,7 @@ func retentionLoop(ctx context.Context, cfg *config.Config, log *slog.Logger) {
 	t := time.NewTicker(time.Hour)
 	defer t.Stop()
 	for {
-		for _, tn := range cfg.Tenants {
+		for _, tn := range cfg.TenantList() {
 			if err := store.ApplyRetention(cfg.DataDir, tn.ID, tn.RetentionDays, cfg.Location(), time.Now(), log); err != nil {
 				log.Error("retention", "tenant", tn.ID, "err", err)
 			}
@@ -374,11 +375,19 @@ func cmdSealDay(args []string) error {
 
 func cmdUserAdd(args []string) error {
 	fs := flag.NewFlagSet("useradd", flag.ExitOnError)
-	path := fs.String("users", "/etc/syslog5651/users.yaml", "users file")
+	path := fs.String("users", "", "users file (default: web.users_file from -config)")
+	cfgPath := fs.String("config", "/etc/syslog5651/config.yaml", "config file")
 	name := fs.String("name", "", "username")
 	role := fs.String("role", web.RoleTenant, "admin or tenant")
 	tenants := fs.String("tenants", "", "comma separated tenant ids (role tenant)")
 	fs.Parse(args)
+	if *path == "" {
+		cfg, err := config.Load(*cfgPath)
+		if err != nil {
+			return fmt.Errorf("%w (or pass -users)", err)
+		}
+		*path = cfg.Web.UsersFile
+	}
 	if !web.ValidUsername(*name) {
 		return errors.New("username must be 3-64 characters: letters, digits, . _ @ -")
 	}
@@ -428,7 +437,7 @@ func cmdUserAdd(args []string) error {
 	if err := web.SaveUsers(*path, f); err != nil {
 		return err
 	}
-	fmt.Fprintf(os.Stderr, "user %s saved to %s (restart the service to apply)\n", *name, *path)
+	fmt.Fprintf(os.Stderr, "user %s saved to %s (the running service picks it up within seconds)\n", *name, *path)
 	return nil
 }
 

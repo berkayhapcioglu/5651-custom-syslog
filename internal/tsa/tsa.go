@@ -242,3 +242,31 @@ func parseOID(s string) ([]int, error) {
 	}
 	return oid, nil
 }
+
+// Info describes a stored time stamp response without verifying it.
+type Info struct {
+	Time     time.Time
+	Subject  string
+	NotAfter time.Time
+}
+
+// Describe parses a DER TimeStampResp for display (TSA name and certificate
+// validity). Use Check to verify it.
+func Describe(resp []byte) (*Info, error) {
+	ts, err := timestamp.ParseResponse(resp)
+	if err != nil {
+		return nil, err
+	}
+	in := &Info{Time: ts.Time}
+	for _, c := range ts.Certificates {
+		for _, u := range c.ExtKeyUsage {
+			if u == x509.ExtKeyUsageTimeStamping {
+				in.Subject, in.NotAfter = c.Subject.String(), c.NotAfter
+			}
+		}
+	}
+	if in.Subject == "" && len(ts.Certificates) > 0 {
+		in.Subject, in.NotAfter = ts.Certificates[0].Subject.String(), ts.Certificates[0].NotAfter
+	}
+	return in, nil
+}

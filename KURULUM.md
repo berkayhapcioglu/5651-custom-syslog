@@ -40,6 +40,12 @@ Paket kaldırılsa bile `/var/lib/syslog5651` silinmez, çünkü içindekiler ya
 
 ## 3. Müşterileri tanımlama
 
+En kolay yol paneldir: yönetici olarak girip **Log kaynakları** sayfasında "Yeni müşteri" ile müşteriyi açın, ardından firewall'un IP'sini ekleyin. Değişiklik servisi yeniden başlatmadan hemen geçerli olur ve denetim kaydına yazılır. Panelden eklenenler `/var/lib/syslog5651/_panel/panel.json` dosyasında saklanır.
+
+Aynı sayfada saklama süresi (365-3650 gün) ve lisans bitiş tarihi de girilir. Lisansı biten müşterinin logları **kabul edilmeye devam eder**; panel sadece uyarır (5651 gereği log kaybı olmaz). Uyarının kaç gün önce başlayacağı **Ayarlar** sayfasındadır. Ayrıca "Bilinmeyen kaynaklar" listesi, henüz hiçbir müşteriye bağlanmamış ama log gönderen IP'leri gösterir; tek tıkla bir müşteriye eklenebilir.
+
+İsterseniz müşterileri `config.yaml` içinde de tanımlayabilirsiniz. Bunlar panelde "config.yaml" etiketiyle görünür; adları ve IP'leri sadece dosyadan değişir, saklama süresi ve lisans tarihi panelden de değiştirilebilir.
+
 ```bash
 sudo nano /etc/syslog5651/config.yaml
 ```
@@ -63,7 +69,8 @@ Kurallar:
 
 - Servis, gelen logu kaynak IP'sine bakarak ilgili müşteriye yazar.
 - Hiçbir müşteriye uymayan IP'lerden gelen loglar atılır ve panelde "Bilinmeyen kaynak" sayacında görünür.
-- İki müşterinin IP aralıkları çakışırsa servis başlamaz ve hatayı söyler.
+- İki müşterinin IP aralıkları çakışırsa servis başlamaz ve hatayı söyler (panel ise çakışan kaynağı hiç kaydetmez).
+- Panelden eklenen ağlar IPv4'te en az /16, IPv6'da en az /32 olmalıdır.
 - Her müşterinin klasörü, günlük manifesti, zaman damgası ve saklama süresi ayrıdır.
 
 Firewall'lar NAT arkasındaysa veya IP'leri değişiyorsa TLS (6514) ile istemci sertifikası kullanın: `listen.tls_client_ca` ayarını doldurun ve her firewall'a bu CA'dan imzalı bir sertifika verin.
@@ -106,19 +113,19 @@ Servis her gün, gün bittikten 10 dakika sonra her müşteri için **bir** zama
 
 ## 5. Web kullanıcısı oluşturma
 
-Yönetici (tüm müşterileri görür):
+İlk yöneticiyi komut satırından oluşturun (tüm müşterileri görür):
 
 ```bash
-sudo syslog5651 useradd -users /etc/syslog5651/users.yaml -name admin -role admin
+sudo syslog5651 useradd -name admin -role admin
 ```
 
-Müşteri kullanıcısı (sadece kendi müşterisini görür):
+Sonraki kullanıcıları panelde **Kullanıcılar** sayfasından ekleyin. Müşteri kullanıcısı sadece seçilen müşterilerin loglarını görür. Komut satırından da eklenebilir:
 
 ```bash
-sudo syslog5651 useradd -users /etc/syslog5651/users.yaml -name lojistik -role tenant -tenants lojistik-as
+sudo syslog5651 useradd -name lojistik -role tenant -tenants lojistik-as
 ```
 
-Şifre en az 12 karakter olmalıdır. Şifreler argon2id ile saklanır. Aynı komutla var olan bir kullanıcının şifresi değiştirilir.
+Şifre en az 12 karakter olmalıdır ve argon2id ile saklanır. Kullanıcılar `/var/lib/syslog5651/_panel/users.yaml` dosyasındadır; komut satırından yapılan değişiklikler birkaç saniye içinde servis yeniden başlatılmadan geçerli olur. Şifresi değişen ya da silinen kullanıcının açık oturumları hemen kapanır. Herkes kendi şifresini **Hesabım** sayfasından değiştirebilir. En az bir yönetici her zaman kalır.
 
 ## 6. Servisi başlatma
 
@@ -168,6 +175,10 @@ Kurulumdan sonra panelde müşterinin "Son log" sütununun güncellendiğini kon
 - Panelde bir güne girip **Bütünlüğü doğrula** ile o günün bütün dosyaları kontrol edilir.
 - Denetimde **Doğrulama paketini indir** ile o günün manifesti, zaman damgası ve sıkıştırılmış dosyaları tek zip olarak alınır.
 
+- Her mühürlenen saat için küçük bir arama indeksi (`.idx`, sıkıştırılmış verinin yaklaşık %1-4'ü) yazılır. İndeks mühürün dışındadır: silinse ya da bozulsa bile mühür ve doğrulama etkilenmez, arama o saati baştan tarar ve indeksi yeniden oluşturur. Yönetici bir günün sayfasından **İndeksi yeniden oluştur** diyebilir.
+- **Arama** sayfasında tarih aralığı, saat aralığı ve cihaz seçilir. "Tam kelime" modu (ör. kullanıcı adı, IP, alan adı) indeks sayesinde aranan kelimenin geçmediği saatleri açmadan atlar; "Metnin içinde" modu her satırı tarar. En fazla 500 sonuç gösterilir ve her arama denetim kaydına yazılır.
+- **Denetim kaydı** sayfası kim, ne zaman, hangi IP'den giriş yaptı, ne aradı, neyi değiştirdi gösterir.
+
 Komut satırından doğrulama:
 
 ```bash
@@ -182,13 +193,13 @@ openssl ts -verify -data manifest.json -in manifest.json.tsr -CAfile kamusm-root
 
 ## 10. Yedekleme
 
-`/var/lib/syslog5651` klasörünü düzenli olarak başka bir diske veya nesne depolamaya kopyalayın (ör. `rsync -a` ile gece). Mühürlü dosyalar değişmez, bu yüzden artımlı yedek çok küçük olur. Ayarlar için `/etc/syslog5651` klasörünü de yedekleyin.
+`/var/lib/syslog5651` klasörünü düzenli olarak başka bir diske veya nesne depolamaya kopyalayın (ör. `rsync -a` ile gece). Mühürlü dosyalar değişmez, bu yüzden artımlı yedek çok küçük olur. Panelden yapılan müşteri, kaynak ve kullanıcı değişiklikleri bu klasörün `_panel` alt klasöründedir. Ayarlar için `/etc/syslog5651` klasörünü de yedekleyin.
 
 ## 11. Sorun giderme
 
 | Belirti | Kontrol |
 | --- | --- |
 | Panelde "Son 1 saatte log gelmedi" | Firewall syslog ayarı, ufw kuralı, `config.yaml` içindeki IP doğru mu? |
-| "Bilinmeyen kaynak" sayacı artıyor | Log gelen IP hiçbir müşteriye tanımlı değil. `journalctl` ile IP'yi görüp `sources` listesine ekleyin. |
+| "Bilinmeyen kaynak" sayacı artıyor | Log gelen IP hiçbir müşteriye tanımlı değil. Panelde **Log kaynakları > Bilinmeyen kaynaklar** listesinden doğru müşteriye ekleyin. |
 | Gün "Açık" kalıyor | Zaman damgası alınamıyor: `journalctl -u syslog5651 | grep "seal day"` |
 | Servis başlamıyor | `journalctl -u syslog5651 -n 50`; hatalı ayar satırı mesajda yazar. |

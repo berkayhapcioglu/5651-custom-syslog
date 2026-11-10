@@ -1,0 +1,14 @@
+{{template "head" "Hesabım"}}
+{{template "nav" .}}
+<div class="page-head"><div><h1>Hesabım</h1><p class="sub">{{.User.Username}} · {{rolename .User.Role}}</p></div></div>
+<section class="panel">
+  <div class="panel-head"><div><h2>Şifre değiştir</h2><p>En az 12 karakter. Diğer cihazlardaki oturumlarınız kapanır.</p></div></div>
+  <form method="post" action="/account/password" class="panel-body form-stack">
+    {{template "csrf" .CSRF}}
+    <label>Mevcut şifre <input name="current" type="password" required maxlength="1024" autocomplete="current-password"></label>
+    <label>Yeni şifre <input name="new" type="password" required minlength="12" maxlength="1024" autocomplete="new-password"></label>
+    <label>Yeni şifre (tekrar) <input name="repeat" type="password" required minlength="12" maxlength="1024" autocomplete="new-password"></label>
+    <div><button type="submit">Şifreyi değiştir</button></div>
+  </form>
+</section>
+{{template "foot"}}

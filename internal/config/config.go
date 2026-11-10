@@ -7,6 +7,8 @@ import (
 	"net/netip"
 	"os"
 	"regexp"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -35,6 +37,11 @@ type Config struct {
 	Tenants       []Tenant `yaml:"tenants"`
 
 	loc *time.Location
+
+	// set is the live tenant set: file tenants merged with panel changes.
+	set     atomic.Pointer[TenantSet]
+	panelMu sync.Mutex
+	panel   *Panel
 }
 
 // Listen holds the syslog listener addresses. An empty address disables it.
@@ -106,8 +113,23 @@ type Tenant struct {
 	Name          string   `yaml:"name"`
 	Sources       []string `yaml:"sources"`
 	RetentionDays int      `yaml:"retention_days"`
+	// LicenseUntil is the last day (YYYY-MM-DD) of the customer's license.
+	// It only drives warnings; logs are never refused because of it.
+	LicenseUntil string `yaml:"license_until"`
 
-	prefixes []netip.Prefix
+	// Filled in by the tenant set; not read from YAML.
+	Origin     string       `yaml:"-"` // "file" (config.yaml) or "panel"
+	SourceList []SourceInfo `yaml:"-"`
+	prefixes   []netip.Prefix
+}
+
+// SourceInfo is one source network of a tenant with its metadata.
+type SourceInfo struct {
+	Prefix  netip.Prefix
+	Label   string
+	Origin  string // "file" or "panel"
+	Added   string
+	AddedBy string
 }
 
 // Prefixes returns the parsed source networks.
@@ -140,7 +162,15 @@ func Load(path string) (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
-	return Parse(b)
+	c, err := Parse(b)
+	if err != nil {
+		return nil, err
+	}
+	// Tenants and settings changed in the web panel.
+	if err := c.LoadPanel(); err != nil {
+		return nil, err
+	}
+	return c, nil
 }
 
 // Parse defaults and validates a config document.
@@ -188,11 +218,6 @@ func (c *Config) defaults() {
 	}
 	if c.Web.SessionTTL.Duration == 0 {
 		c.Web.SessionTTL.Duration = 8 * time.Hour
-	}
-	for i := range c.Tenants {
-		if c.Tenants[i].RetentionDays == 0 {
-			c.Tenants[i].RetentionDays = c.RetentionDays
-		}
 	}
 }
 
@@ -244,43 +269,12 @@ func (c *Config) validate() error {
 		}
 	}
 
-	seen := map[string]bool{}
-	var all []struct {
-		p  netip.Prefix
-		id string
+	ts, err := c.buildSet(&Panel{})
+	if err != nil {
+		return err
 	}
-	for i := range c.Tenants {
-		t := &c.Tenants[i]
-		if !IDPattern.MatchString(t.ID) {
-			return fmt.Errorf("tenant id %q: use lowercase letters, digits, - and _", t.ID)
-		}
-		if seen[t.ID] {
-			return fmt.Errorf("tenant id %q is duplicated", t.ID)
-		}
-		seen[t.ID] = true
-		if t.RetentionDays < 1 {
-			return fmt.Errorf("tenant %s: retention_days must be >= 1", t.ID)
-		}
-		for _, s := range t.Sources {
-			p, err := parsePrefix(s)
-			if err != nil {
-				return fmt.Errorf("tenant %s: source %q: %w", t.ID, s, err)
-			}
-			for _, o := range all {
-				if o.p.Overlaps(p) {
-					return fmt.Errorf("tenant %s: source %s overlaps tenant %s (%s)", t.ID, p, o.id, o.p)
-				}
-			}
-			all = append(all, struct {
-				p  netip.Prefix
-				id string
-			}{p, t.ID})
-			t.prefixes = append(t.prefixes, p)
-		}
-	}
-	if c.DefaultTenant != "" && !seen[c.DefaultTenant] {
-		return fmt.Errorf("default_tenant %q is not a configured tenant", c.DefaultTenant)
-	}
+	c.set.Store(ts)
+	c.panel = &Panel{}
 	return nil
 }
 
@@ -299,29 +293,12 @@ func parsePrefix(s string) (netip.Prefix, error) {
 // Location returns the configured time zone.
 func (c *Config) Location() *time.Location { return c.loc }
 
-// Tenant returns the tenant with the given id.
-func (c *Config) Tenant(id string) (*Tenant, bool) {
-	for i := range c.Tenants {
-		if c.Tenants[i].ID == id {
-			return &c.Tenants[i], true
-		}
-	}
-	return nil, false
-}
+// Tenant returns a copy of the tenant with the given id.
+func (c *Config) Tenant(id string) (*Tenant, bool) { return c.set.Load().Tenant(id) }
+
+// TenantList returns the current tenants, sorted by id.
+func (c *Config) TenantList() []Tenant { return c.set.Load().List() }
 
 // Resolve maps a source address to a tenant id; ok is false when the
 // source is unknown and no default tenant is set.
-func (c *Config) Resolve(a netip.Addr) (string, bool) {
-	a = a.Unmap()
-	for i := range c.Tenants {
-		for _, p := range c.Tenants[i].prefixes {
-			if p.Contains(a) {
-				return c.Tenants[i].ID, true
-			}
-		}
-	}
-	if c.DefaultTenant != "" {
-		return c.DefaultTenant, true
-	}
-	return "", false
-}
+func (c *Config) Resolve(a netip.Addr) (string, bool) { return c.set.Load().Resolve(a) }

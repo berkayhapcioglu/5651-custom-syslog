@@ -1,0 +1,40 @@
+{{template "head" "Kullanıcılar"}}
+{{template "nav" .}}
+<div class="page-head"><div><h1>Kullanıcılar</h1><p class="sub">Yöneticiler bütün müşterileri görür; müşteri kullanıcıları sadece atanan müşterileri görür. Şifreler argon2id ile saklanır.</p></div></div>
+<section class="panel">
+  <div class="table-wrap"><table class="data">
+    <thead><tr><th>Kullanıcı</th><th>Rol</th><th>Müşteriler</th><th></th></tr></thead>
+    <tbody>{{range .Users}}{{$u := .}}
+      <tr><td><span class="primary">{{.Username}}</span>{{if eq .Username $.Me}}<small>siz</small>{{end}}</td>
+        <td>{{if eq .Role "admin"}}<span class="badge plain">Yönetici</span>{{else}}<span class="badge plain">Müşteri kullanıcısı</span>{{end}}</td>
+        <td>{{if eq .Role "admin"}}<span class="muted">Hepsi</span>{{else}}{{join .Tenants ", "}}{{end}}</td>
+        <td>
+          <details class="edit"><summary>Düzenle</summary>
+            <form method="post" action="/admin/users/save" class="form-stack">
+              {{template "csrf" $.CSRF}}<input type="hidden" name="username" value="{{.Username}}">
+              <label>Rol <select name="role"><option value="tenant">Müşteri kullanıcısı</option><option value="admin"{{if eq .Role "admin"}} selected{{end}}>Yönetici</option></select></label>
+              <fieldset class="checks"><legend class="hint">Müşteriler (müşteri kullanıcısı için)</legend>{{range $.Tenants}}<label><input type="checkbox" name="tenants" value="{{.ID}}"{{if has $u.Tenants .ID}} checked{{end}}> {{.Name}}</label>{{end}}</fieldset>
+              <label>Yeni şifre <input name="password" type="password" minlength="12" maxlength="1024" autocomplete="new-password" placeholder="Boş bırakılırsa değişmez"></label>
+              <div class="actions"><button type="submit" class="sm">Kaydet</button></div>
+            </form>
+            {{if ne .Username $.Me}}<form method="post" action="/admin/users/delete" class="actions">{{template "csrf" $.CSRF}}<input type="hidden" name="username" value="{{.Username}}"><button class="danger sm" type="submit">Kullanıcıyı sil</button></form>{{end}}
+          </details>
+        </td></tr>
+    {{end}}</tbody>
+  </table></div>
+</section>
+<section class="panel">
+  <div class="panel-head"><div><h2>Yeni kullanıcı</h2><p>Şifre en az 12 karakter. Şifre değişince kullanıcının açık oturumları kapanır.</p></div></div>
+  <form method="post" action="/admin/users/save" class="panel-body form-stack">
+    {{template "csrf" .CSRF}}<input type="hidden" name="new" value="1">
+    <div class="form-grid">
+      <label>Kullanıcı adı <input name="username" required pattern="[a-zA-Z0-9._@\-]{3,64}" maxlength="64" autocomplete="off"></label>
+      <label>Rol <select name="role"><option value="tenant">Müşteri kullanıcısı</option><option value="admin">Yönetici</option></select></label>
+      <label>Şifre <input name="password" type="password" required minlength="12" maxlength="1024" autocomplete="new-password"></label>
+    </div>
+    <fieldset class="checks"><legend class="hint">Müşteriler (müşteri kullanıcısı için)</legend>{{range .Tenants}}<label><input type="checkbox" name="tenants" value="{{.ID}}"> {{.Name}}</label>{{else}}<span class="muted">Önce müşteri ekleyin.</span>{{end}}</fieldset>
+    <div><button type="submit">Kullanıcı ekle</button></div>
+  </form>
+</section>
+<p class="muted">Kullanıcı dosyası: <code>{{.Path}}</code></p>
+{{template "foot"}}

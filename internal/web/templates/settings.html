@@ -1,0 +1,39 @@
+{{template "head" "Ayarlar ve durum"}}
+{{template "nav" .}}
+<div class="page-head"><div><h1>Ayarlar ve durum</h1><p class="sub">Sunucu, sertifikalar, zaman damgası ve panelden değiştirilebilen ayarlar</p></div></div>
+{{with .Status}}
+<div class="stats">
+  <div class="stat {{level .Sys.CPUPercent}}"><div class="label">CPU</div><div class="value">%{{pct .Sys.CPUPercent}}</div><div class="foot">{{.Sys.CPUs}} çekirdek · yük {{printf "%.2f" .Sys.Load1}} / {{printf "%.2f" .Sys.Load5}}</div><div class="meter {{level .Sys.CPUPercent}} {{mclass .Sys.CPUPercent}}"><i></i></div></div>
+  <div class="stat {{level .Sys.MemPercent}}"><div class="label">RAM</div><div class="value">%{{pct .Sys.MemPercent}}</div><div class="foot">{{bytes .Sys.MemUsed}} / {{bytes .Sys.MemTotal}}</div><div class="meter {{level .Sys.MemPercent}} {{mclass .Sys.MemPercent}}"><i></i></div></div>
+  <div class="stat {{.DiskClass}}"><div class="label">Veri diski</div><div class="value">{{bytes .DiskFree}} <small>boş</small></div><div class="foot">toplam {{bytes .DiskTotal}} · %{{pct .DiskUsedPercent}} dolu</div><div class="meter {{level .DiskUsedPercent}} {{mclass .DiskUsedPercent}}"><i></i></div></div>
+  <div class="stat ok"><div class="label">Çalışma süresi</div><div class="value">{{dur .Uptime}}</div><div class="foot">{{if .SystemUptime}}sunucu {{dur .SystemUptime}}dir açık{{end}}</div></div>
+</div>
+<div class="grid-2">
+<section class="panel"><div class="panel-head"><h2>Servis</h2></div><table class="kv">
+  <tr><th>Sürüm</th><td>{{.Version}}</td></tr>
+  <tr><th>Servis başlangıcı</th><td>{{localtime .Started}}</td></tr>
+  <tr><th>Servis belleği</th><td>{{bytes .Sys.ProcRSS}} · {{.Sys.Goroutines}} goroutine</td></tr>
+  {{range $k, $v := .Stats}}<tr><th>{{$k}}</th><td>{{thousands $v}}</td></tr>{{end}}
+</table></section>
+<section class="panel"><div class="panel-head"><h2>Sertifikalar ve zaman damgası</h2></div><table class="kv">
+  {{range .Certs}}<tr><th>{{.Name}}</th><td>{{if .Err}}<span class="badge {{.Class}}">{{.Err}}</span>{{else}}<span class="badge {{.Class}}">{{.Days}} gün geçerli</span> {{localtime .NotAfter}}<br><small>{{.Subject}}{{if .SelfSign}} · kendinden imzalı{{end}}</small>{{end}}</td></tr>{{end}}
+  <tr><th>Zaman damgası modu</th><td>{{if eq .StampMode "none"}}<span class="badge err">Kapalı (5651 uyumlu değil)</span>{{else}}<span class="badge ok">{{.StampMode}}</span>{{end}}</td></tr>
+  <tr><th>Son zaman damgası</th><td>{{if .StampLast}}{{stamp .StampLast}} · {{daytr .StampDay}} günü<br><small>{{.StampTSA}}</small>{{else}}-{{end}}</td></tr>
+  {{with .StampCert}}<tr><th>TSA sertifikası</th><td><span class="badge {{.Class}}">{{.Days}} gün geçerli</span> {{localtime .NotAfter}}</td></tr>{{end}}
+</table></section>
+</div>
+{{end}}
+<section class="panel">
+  <div class="panel-head"><div><h2>Panel ayarları</h2><p>Bu ayarlar panelden değiştirilir ve denetim kaydına yazılır.</p></div></div>
+  <form method="post" action="/admin/settings" class="panel-body form-grid">
+    {{template "csrf" .CSRF}}
+    <label>Varsayılan saklama (gün) <input name="default_retention_days" type="number" min="365" max="3650" required value="{{.DefaultRetention}}"><span class="hint">Kendi süresi olmayan müşterilere uygulanır. 5651: en az 1, en çok 2 yıl.</span></label>
+    <label>Lisans uyarısı (gün) <input name="license_warn_days" type="number" min="1" max="365" required value="{{.LicenseWarnDays}}"><span class="hint">Lisans bitimine bu kadar gün kala uyarı verilir.</span></label>
+    <div><button type="submit">Kaydet</button></div>
+  </form>
+</section>
+<section class="panel">
+  <div class="panel-head"><div><h2>Sunucu yapılandırması</h2><p>Portlar, sertifika yolları ve zaman damgası ayarları güvenlik için sadece <code>/etc/syslog5651/config.yaml</code> içinden değiştirilir; panel ele geçirilse bile sunucuda komut çalıştırılamaz.</p></div></div>
+  <table class="kv">{{range .Config}}<tr><th>{{index . 0}}</th><td><code>{{index . 1}}</code></td></tr>{{end}}</table>
+</section>
+{{template "foot"}}

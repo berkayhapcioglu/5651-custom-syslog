@@ -40,6 +40,9 @@ type Server struct {
 	TooLong  atomic.Int64 // truncated messages
 	Rejected atomic.Int64 // connections over the limit or from unknown sources
 
+	// Unknown, when set, records sources that match no tenant.
+	Unknown *Unknown
+
 	conns chan struct{}
 	wg    sync.WaitGroup
 }
@@ -54,6 +57,7 @@ func (s *Server) emit(src netip.Addr, msg []byte) {
 	tenant, ok := s.Resolve(src)
 	if !ok {
 		s.Dropped.Add(1)
+		s.Unknown.note(src, "udp", time.Now())
 		return
 	}
 	if len(msg) > s.MaxMsg {
@@ -169,6 +173,7 @@ func (s *Server) serve(ctx context.Context, ln net.Listener) error {
 		// Refuse unknown sources before reading anything.
 		if _, ok := s.Resolve(ap.Addr()); !ok {
 			s.Rejected.Add(1)
+			s.Unknown.note(ap.Addr(), "tcp/tls", time.Now())
 			c.Close()
 			continue
 		}
