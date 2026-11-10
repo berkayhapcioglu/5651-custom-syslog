@@ -213,8 +213,13 @@ func (s *Server) sourceAdd(w http.ResponseWriter, r *http.Request, ss *session) 
 	})
 	if err != nil {
 		msg := err.Error()
-		if strings.Contains(msg, "overlaps") {
-			msg = "Bu adres başka bir kaynakla çakışıyor: " + msg
+		var oe *config.OverlapError
+		if errors.As(err, &oe) {
+			other := oe.Other
+			if t, ok := s.Cfg.Tenant(oe.Other); ok {
+				other = t.Name
+			}
+			msg = fmt.Sprintf("%s adresi, %s müşterisinin %s kaynağıyla çakışıyor. Bir adres yalnızca bir müşteriye ait olabilir.", oe.Source, other, oe.OtherSource)
 		}
 		s.flash(w, r, back, "", msg)
 		return

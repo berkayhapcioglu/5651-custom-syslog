@@ -23,12 +23,12 @@
       <thead><tr><th>Zaman</th><th>Cihaz</th><th>Kayıt</th></tr></thead>
       <tbody>{{range .Hits}}<tr><td class="nowrap">{{localtime .Time}}</td><td class="nowrap">{{.Device}}{{if .Label}}<small>{{.Label}}</small>{{end}}</td><td><code>{{.Line}}</code></td></tr>{{end}}</tbody>
     </table></div>
-    {{else}}<div class="empty"><b>Sonuç bulunamadı</b><p>“{{.Req.Q}}” seçilen aralıkta geçmiyor. Tarihleri genişletmeyi, “Metnin içinde” eşleşmesini ya da değer tırnaklıysa tırnaklarıyla (ör. <code>action="deny"</code>) aramayı deneyin.</p></div>{{end}}
+    {{else}}<div class="empty"><b>Sonuç bulunamadı</b><p>“{{.Req.Q}}” seçilen aralıkta geçmiyor. Tarihleri genişletmeyi, “Metnin içinde” eşleşmesini ya da daha kısa bir kelimeyle aramayı deneyin.</p></div>{{end}}
   {{else if not .T}}
     <div class="empty"><b>Müşteri seçin</b><p>Arama tek müşterinin logları içinde yapılır.</p></div>
   {{else}}
     <div class="panel-body help">
-      <p><b>Tam kelime</b> araması IP adresi, kullanıcı adı, cihaz adı gibi bütün kelimeleri arar ve arama dizinini kullanır; aylarca geriye hızlı bakar. Örnek: <code>192.168.1.20</code>, <code>srcip=10.0.0.5</code>, <code>action="deny"</code>. FortiGate gibi değerleri tırnak içinde yazan cihazlarda tırnakları da yazın ya da sadece değeri arayın (ör. <code>deny</code>).</p>
+      <p><b>Tam kelime</b> araması IP adresi, kullanıcı adı, cihaz adı gibi bütün kelimeleri arar ve arama dizinini kullanır; aylarca geriye hızlı bakar. Örnek: <code>192.168.1.20</code>, <code>srcip=10.0.0.5</code>, <code>action=deny</code>. Tırnaklar ve boşluklar önemsenmez: <code>action=deny</code> araması <code>action="deny"</code> yazan cihazlarda da bulur.</p>
       <p><b>Metnin içinde</b> araması kelimenin bir parçasını da bulur (ör. <code>192.168.1.</code>) ama her saati açtığı için yavaştır.</p>
       <p>Her arama denetim kaydına yazılır.</p>
     </div>

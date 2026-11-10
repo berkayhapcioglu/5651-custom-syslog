@@ -307,6 +307,10 @@ func (s *Server) searchHour(dir string, f hourFile, req *searchReq) bool {
 	sc := bufio.NewScanner(bytes.NewReader(raw))
 	sc.Buffer(make([]byte, 64*1024), 4<<20)
 	var low []byte
+	var wq *store.WordQuery
+	if !req.Text {
+		wq = store.NewWordQuery(req.qLower)
+	}
 	for sc.Scan() {
 		line := sc.Bytes()
 		low = append(low[:0], line...)
@@ -319,7 +323,7 @@ func (s *Server) searchHour(dir string, f hourFile, req *searchReq) bool {
 		if req.Text {
 			match = bytes.Contains(low, req.qLower)
 		} else {
-			match = store.MatchWords(low, req.qLower)
+			match = wq.Match(low)
 		}
 		if !match {
 			continue

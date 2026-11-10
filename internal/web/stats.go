@@ -417,7 +417,7 @@ func (s *Server) funcs() template.FuncMap {
 			if file == 0 {
 				return "-"
 			}
-			return fmt.Sprintf("%.1fx", float64(raw)/float64(file))
+			return strings.Replace(fmt.Sprintf("%.1fx", float64(raw)/float64(file)), ".", ",", 1)
 		},
 		"bytes":     humanBytes,
 		"thousands": thousands,
@@ -476,6 +476,7 @@ func (s *Server) funcs() template.FuncMap {
 		"join":  strings.Join,
 		"level": level,
 		"pct":   func(f float64) string { return fmt.Sprintf("%.0f", f) },
+		"dec2":  func(f float64) string { return strings.Replace(fmt.Sprintf("%.2f", f), ".", ",", 1) },
 		"dur":   durTR,
 		"since": func(t time.Time) string { return durTR(time.Since(t)) },
 		"days":  func(d time.Duration) int { return int(d.Hours() / 24) },

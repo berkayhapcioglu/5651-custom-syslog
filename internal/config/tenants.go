@@ -207,6 +207,16 @@ func (c *Config) UpdatePanel(fn func(p *Panel) error) error {
 	return nil
 }
 
+// OverlapError reports two sources that would match the same address.
+type OverlapError struct {
+	Tenant, Other       string
+	Source, OtherSource netip.Prefix
+}
+
+func (e *OverlapError) Error() string {
+	return fmt.Sprintf("tenant %s: source %s overlaps tenant %s (%s)", e.Tenant, e.Source, e.Other, e.OtherSource)
+}
+
 // ValidDate reports whether s is a YYYY-MM-DD date.
 func ValidDate(s string) bool {
 	_, err := time.Parse("2006-01-02", s)
@@ -298,7 +308,7 @@ func (c *Config) buildSet(p *Panel) (*TenantSet, error) {
 		for _, si := range list[i].SourceList {
 			for _, o := range all {
 				if o.p.Overlaps(si.Prefix) {
-					return nil, fmt.Errorf("tenant %s: source %s overlaps tenant %s (%s)", list[i].ID, si.Prefix, o.id, o.p)
+					return nil, &OverlapError{Tenant: list[i].ID, Source: si.Prefix, Other: o.id, OtherSource: o.p}
 				}
 			}
 			all = append(all, owned{si.Prefix, list[i].ID})

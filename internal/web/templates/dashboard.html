@@ -15,7 +15,7 @@
 </div>
 {{with .Status}}
 <div class="stats">
-  <div class="stat {{level .Sys.CPUPercent}}"><div class="label">CPU</div><div class="value">%{{pct .Sys.CPUPercent}}</div><div class="foot">{{.Sys.CPUs}} çekirdek · yük {{printf "%.2f" .Sys.Load1}}</div><div class="meter {{level .Sys.CPUPercent}} {{mclass .Sys.CPUPercent}}"><i></i></div></div>
+  <div class="stat {{level .Sys.CPUPercent}}"><div class="label">CPU</div><div class="value">%{{pct .Sys.CPUPercent}}</div><div class="foot">{{.Sys.CPUs}} çekirdek · yük {{dec2 .Sys.Load1}}</div><div class="meter {{level .Sys.CPUPercent}} {{mclass .Sys.CPUPercent}}"><i></i></div></div>
   <div class="stat {{level .Sys.MemPercent}}"><div class="label">RAM</div><div class="value">%{{pct .Sys.MemPercent}}</div><div class="foot">{{bytes .Sys.MemUsed}} / {{bytes .Sys.MemTotal}} · servis {{bytes .Sys.ProcRSS}}</div><div class="meter {{level .Sys.MemPercent}} {{mclass .Sys.MemPercent}}"><i></i></div></div>
   <div class="stat ok"><div class="label">Çalışma süresi</div><div class="value">{{dur .Uptime}}</div><div class="foot">{{if .SystemUptime}}sunucu {{dur .SystemUptime}}dir açık{{else}}servis {{localtime .Started}} başladı{{end}}</div></div>
   <div class="stat {{if eq .StampMode "none"}}err{{else if .StampCert}}{{.StampCert.Class}}{{else}}ok{{end}}"><div class="label">Zaman damgası</div><div class="value sm">{{if eq .StampMode "none"}}Kapalı{{else if .StampLast}}{{stamp .StampLast}}{{else}}Henüz yok{{end}}</div><div class="foot">{{if eq .StampMode "none"}}5651 için zaman damgası gerekir{{else if .StampCert}}TSA sertifikası {{.StampCert.Days}} gün geçerli{{else}}mod: {{.StampMode}}{{end}}</div></div>

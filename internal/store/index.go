@@ -232,18 +232,75 @@ func ReadIndex(dayDir string, e HourEntry) (*Index, error) {
 	return ParseIndex(b)
 }
 
-// MatchWords reports whether line contains q (both compared lowercase) with
-// word boundaries on both sides, the "whole word" search mode.
+// MatchWords reports whether line contains the words of q (both lowercase)
+// one after another, ignoring the separators between them: the "whole word"
+// search mode. So action=accept finds action="accept" and action=accept,
+// but not action=accepted.
 func MatchWords(lineLower, qLower []byte) bool {
-	for off := 0; ; {
-		i := bytes.Index(lineLower[off:], qLower)
-		if i < 0 {
-			return false
+	return NewWordQuery(qLower).Match(lineLower)
+}
+
+// WordQuery is a compiled whole-word query; it is not safe for concurrent use.
+type WordQuery struct {
+	words [][]byte
+	q     []byte
+	toks  [][2]int
+}
+
+// NewWordQuery splits a lowercase query into words.
+func NewWordQuery(qLower []byte) *WordQuery {
+	wq := &WordQuery{q: qLower}
+	for i := 0; i < len(qLower); {
+		for i < len(qLower) && isSep(qLower[i]) {
+			i++
 		}
-		s, e := off+i, off+i+len(qLower)
-		if (s == 0 || isSep(lineLower[s-1])) && (e == len(lineLower) || isSep(lineLower[e])) {
+		j := i
+		for j < len(qLower) && !isSep(qLower[j]) {
+			j++
+		}
+		if j > i {
+			wq.words = append(wq.words, qLower[i:j])
+		}
+		i = j
+	}
+	return wq
+}
+
+// Match reports whether the lowercase line matches.
+func (wq *WordQuery) Match(lineLower []byte) bool {
+	if len(wq.words) == 0 {
+		return len(wq.q) > 0 && bytes.Contains(lineLower, wq.q)
+	}
+	if !bytes.Contains(lineLower, wq.words[0]) {
+		return false
+	}
+	wq.toks = wq.toks[:0]
+	for i := 0; i < len(lineLower); {
+		for i < len(lineLower) && isSep(lineLower[i]) {
+			i++
+		}
+		j := i
+		for j < len(lineLower) && !isSep(lineLower[j]) {
+			j++
+		}
+		if j > i {
+			wq.toks = append(wq.toks, [2]int{i, j})
+		}
+		i = j
+	}
+	n := len(wq.words)
+	for s := 0; s+n <= len(wq.toks); s++ {
+		ok := true
+		for k := 0; k < n; k++ {
+			t := wq.toks[s+k]
+			if !bytes.Equal(lineLower[t[0]:t[1]], wq.words[k]) {
+				ok = false
+				break
+			}
+		}
+		if ok {
 			return true
 		}
-		off = s + 1
 	}
+	return false
 }

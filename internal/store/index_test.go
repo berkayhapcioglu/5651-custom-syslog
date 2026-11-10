@@ -72,6 +72,10 @@ func TestMatchWords(t *testing.T) {
 		{"srcip=10.0.0.5 dst", "10.0.0.5", true},
 		{"srcip=10.0.0.55", "10.0.0.5", false},
 		{"action=deny", "action=deny", true},
+		{`action="accept" srcip=1`, "action=accept", true},
+		{`action="accepted"`, "action=accept", false},
+		{`user="ali veli" x`, "ali veli", true},
+		{`user="ali" veli`, "veli ali", false},
 	} {
 		if got := MatchWords([]byte(c.line), []byte(c.q)); got != c.want {
 			t.Errorf("MatchWords(%q,%q)=%v", c.line, c.q, got)

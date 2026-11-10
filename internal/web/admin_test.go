@@ -171,3 +171,19 @@ func TestAccountPassword(t *testing.T) {
 		t.Fatal("new password does not work")
 	}
 }
+
+func TestErrorPages(t *testing.T) {
+	ts, _ := testServer(t)
+	c := client(ts)
+	login(t, ts, c, "admin", testPassword)
+	code, body, h := get(t, c, ts.URL+"/t/yok-boyle")
+	if code != http.StatusNotFound || !strings.Contains(body, "Sayfa bulunamadı") || !strings.HasPrefix(h.Get("Content-Type"), "text/html") {
+		t.Fatalf("404 page: %d %s", code, h.Get("Content-Type"))
+	}
+	if h.Get("Content-Security-Policy") == "" {
+		t.Fatal("error page lost security headers")
+	}
+	if code, body, _ := get(t, c, ts.URL+"/admin/sources/add"); code != http.StatusMethodNotAllowed || !strings.Contains(body, "böyle açılmaz") {
+		t.Fatalf("405 page: %d", code)
+	}
+}

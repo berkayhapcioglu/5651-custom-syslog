@@ -171,7 +171,8 @@ func (s *Server) cookieName() string {
 }
 
 func (s *Server) secure(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	return http.HandlerFunc(func(w0 http.ResponseWriter, r *http.Request) {
+		w := &errorWriter{ResponseWriter: w0, s: s}
 		h := w.Header()
 		h.Set("Content-Security-Policy", "default-src 'none'; style-src 'self'; img-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'")
 		h.Set("X-Content-Type-Options", "nosniff")
@@ -578,7 +579,7 @@ func humanBytes(n int64) string {
 		div *= u
 		exp++
 	}
-	return fmt.Sprintf("%.1f %ciB", float64(n)/float64(div), "KMGTPE"[exp])
+	return strings.Replace(fmt.Sprintf("%.1f %ciB", float64(n)/float64(div), "KMGTPE"[exp]), ".", ",", 1)
 }
 
 // page fills the common template data: user, CSRF token, active menu item
