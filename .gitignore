@@ -1,3 +1,5 @@
 dist/
 *.test
 /syslog5651
+/demo/
+/_e2e/

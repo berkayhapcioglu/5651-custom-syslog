@@ -44,6 +44,10 @@ if [ "$1" = "configure" ]; then
   fi
   install -d -m 0700 -o syslog5651 -g syslog5651 /var/lib/syslog5651
   install -d -m 0750 -o root -g syslog5651 /etc/syslog5651 /etc/syslog5651/tls
+  # dpkg does not bring back a conffile the admin deleted; restore the example.
+  if [ ! -f /etc/syslog5651/config.yaml ]; then
+    install -m 0640 /usr/share/doc/syslog5651/config.example.yaml /etc/syslog5651/config.yaml
+  fi
   chown root:syslog5651 /etc/syslog5651/config.yaml
   chmod 0640 /etc/syslog5651/config.yaml
   # Self-signed certificate for the web UI and syslog TLS (replace with your own).
