@@ -1,0 +1,18 @@
+{{template "head" "Doğrulama"}}
+{{template "nav" .}}
+<p class="crumbs"><a href="/">Müşteriler</a> / <a href="/t/{{.T.ID}}">{{.T.Name}}</a> / <a href="/t/{{.T.ID}}/d/{{.Day}}">{{.Day}}</a> / Doğrulama</p>
+<h1>Doğrulama · {{.Day}}</h1>
+{{if .Error}}
+  <p class="err">Doğrulama BAŞARISIZ: {{.Error}}</p>
+{{else}}{{with .Report}}
+  <p class="ok">Doğrulama başarılı.</p>
+  <table class="kv">
+    <tr><th>Dosya sayısı</th><td>{{.Files}}</td></tr>
+    <tr><th>Satır sayısı</th><td>{{.Lines}}</td></tr>
+    <tr><th>Zaman damgası</th><td>{{if .StampTime}}{{.StampTime}}{{else}}yok{{end}}</td></tr>
+    <tr><th>TSA</th><td>{{if .TSA}}{{.TSA}}{{else}}-{{end}}</td></tr>
+    <tr><th>TSA sertifika zinciri</th><td>{{if .ChainToCA}}kök sertifikaya kadar doğrulandı{{else}}kök sertifika ayarlanmadı, sadece imza kontrol edildi{{end}}</td></tr>
+    <tr><th>Önceki gün bağlantısı</th><td>{{if .PrevDay}}{{.PrevDay}} {{if .PrevDayOK}}doğrulandı{{else}}(önceki gün silinmiş){{end}}{{else}}ilk gün{{end}}</td></tr>
+  </table>
+{{end}}{{end}}
+{{template "foot"}}

@@ -1,0 +1,194 @@
+# Kurulum Rehberi
+
+Bu rehber syslog5651 servisini bir Ubuntu sunucuya kurmayı, müşterileri tanımlamayı ve firewall'ları bağlamayı anlatır. Kurulum yaklaşık 15 dakika sürer.
+
+## 1. Gereksinimler
+
+| Konu | Öneri |
+| --- | --- |
+| İşletim sistemi | Ubuntu Server 22.04 veya 24.04 (64 bit) |
+| CPU / RAM | Başlangıç için 2 çekirdek, 4 GB RAM (tahmini; log hacmine göre artırın) |
+| Disk | Tahmini: ham log hacminin yaklaşık 1/15'i × saklama süresi (ör. günde 10 GB ham log, 2 yıl ≈ 500 GB). Gerçek oran ilk günlerden sonra panelde görünür. |
+| Saat | NTP açık olmalı: `timedatectl` çıktısında `System clock synchronized: yes` |
+| Zaman damgası | KamuSM zaman damgası sözleşmesi (kontör) ve erişim bilgileri |
+
+Sunucuda şu portların açık olması gerekir:
+
+| Port | Protokol | Ne için | Kime açılmalı |
+| --- | --- | --- | --- |
+| 514 | UDP ve TCP | Syslog | Sadece müşteri firewall'larının IP'lerine |
+| 6514 | TCP (TLS) | Şifreli syslog | Sadece müşteri firewall'larının IP'lerine |
+| 8443 | TCP (HTTPS) | Web arayüzü | Sadece ofis / VPN IP'lerine |
+
+## 2. Paketi kurma
+
+```bash
+sudo apt update
+sudo apt install ./syslog5651_0.1.0_amd64.deb
+```
+
+Paket şunları yapar:
+
+- `syslog5651` adında, giriş yapamayan bir sistem kullanıcısı oluşturur. Servis root olarak çalışmaz.
+- Programı `/usr/bin/syslog5651` olarak kurar.
+- Ayar dosyasını `/etc/syslog5651/config.yaml` olarak koyar.
+- Log klasörünü `/var/lib/syslog5651` olarak açar (sadece servis kullanıcısı okuyabilir).
+- Web arayüzü ve TLS syslog için kendinden imzalı bir sertifika üretir (`/etc/syslog5651/tls/`).
+- Kısıtlamalı bir systemd servisi kurar (sadece 514 portunu açma yetkisi, salt okunur sistem, sadece log klasörüne yazma).
+
+Paket kaldırılsa bile `/var/lib/syslog5651` silinmez, çünkü içindekiler yasal delildir.
+
+## 3. Müşterileri tanımlama
+
+```bash
+sudo nano /etc/syslog5651/config.yaml
+```
+
+Her müşteri `tenants` altında bir kayıttır:
+
+```yaml
+tenants:
+  - id: lojistik-as            # kısa ad: küçük harf, rakam, - ve _
+    name: "Örnek Lojistik A.Ş."
+    sources:
+      - 203.0.113.10           # firewall'un dış IP'si
+      - 198.51.100.0/28        # veya bir ağ
+  - id: deniz-otel
+    name: "Deniz Otel Ltd."
+    sources: [192.0.2.44]
+    retention_days: 730        # isterseniz müşteriye özel saklama süresi
+```
+
+Kurallar:
+
+- Servis, gelen logu kaynak IP'sine bakarak ilgili müşteriye yazar.
+- Hiçbir müşteriye uymayan IP'lerden gelen loglar atılır ve panelde "Bilinmeyen kaynak" sayacında görünür.
+- İki müşterinin IP aralıkları çakışırsa servis başlamaz ve hatayı söyler.
+- Her müşterinin klasörü, günlük manifesti, zaman damgası ve saklama süresi ayrıdır.
+
+Firewall'lar NAT arkasındaysa veya IP'leri değişiyorsa TLS (6514) ile istemci sertifikası kullanın: `listen.tls_client_ca` ayarını doldurun ve her firewall'a bu CA'dan imzalı bir sertifika verin.
+
+## 4. Zaman damgasını ayarlama
+
+5651 uyumu için bu adım zorunludur. `timestamp.mode: none` sadece denemek içindir.
+
+**KamuSM istemcisiyle (önerilen):** KamuSM'in verdiği istemci programını sunucuya kurun ve `config.yaml` içine şunu yazın:
+
+```yaml
+timestamp:
+  mode: exec
+  command: ["/opt/kamusm/istemci", "<girdi parametresi>", "{data}", "<çıktı parametresi>", "{out}"]
+  ca_file: /etc/syslog5651/kamusm-root.crt
+```
+
+Parametre adlarını KamuSM istemcisinin belgesinden alın. `{data}` yerine damgalanacak manifest dosyası, `{out}` yerine istemcinin yazacağı `.tsr` dosyası konur.
+
+**Standart RFC 3161 sunucusuyla:**
+
+```yaml
+timestamp:
+  mode: http
+  url: "https://..."                          # TSA adresi
+  username: "kullanici"                       # gerekiyorsa
+  password_file: /etc/syslog5651/tsa-password
+  ca_file: /etc/syslog5651/tsa-root.crt
+```
+
+Şifre dosyasını şu izinlerle oluşturun:
+
+```bash
+sudo sh -c 'printf "%s" "SIFRE" > /etc/syslog5651/tsa-password'
+sudo chown root:syslog5651 /etc/syslog5651/tsa-password
+sudo chmod 0640 /etc/syslog5651/tsa-password
+```
+
+Servis her gün, gün bittikten 10 dakika sonra her müşteri için **bir** zaman damgası alır (müşteri başına günde 1 kontör). Damga alınamazsa her dakika yeniden dener ve gün "Açık" olarak kalır.
+
+## 5. Web kullanıcısı oluşturma
+
+Yönetici (tüm müşterileri görür):
+
+```bash
+sudo syslog5651 useradd -users /etc/syslog5651/users.yaml -name admin -role admin
+```
+
+Müşteri kullanıcısı (sadece kendi müşterisini görür):
+
+```bash
+sudo syslog5651 useradd -users /etc/syslog5651/users.yaml -name lojistik -role tenant -tenants lojistik-as
+```
+
+Şifre en az 12 karakter olmalıdır. Şifreler argon2id ile saklanır. Aynı komutla var olan bir kullanıcının şifresi değiştirilir.
+
+## 6. Servisi başlatma
+
+```bash
+sudo systemctl restart syslog5651
+sudo systemctl status syslog5651
+sudo journalctl -u syslog5651 -f      # canlı servis kayıtları
+```
+
+Web arayüzü: `https://SUNUCU-IP:8443`
+
+Kendinden imzalı sertifika olduğu için tarayıcı ilk girişte uyarı verir. Kalıcı çözüm için kendi sertifikanızı `/etc/syslog5651/tls/server.crt` ve `server.key` olarak koyun (`chown root:syslog5651`, anahtar için `chmod 0640`) ve servisi yeniden başlatın.
+
+## 7. Sunucu firewall'u (ufw)
+
+```bash
+sudo ufw allow from 203.0.113.10 to any port 514 proto udp
+sudo ufw allow from 203.0.113.10 to any port 514 proto tcp
+sudo ufw allow from 203.0.113.10 to any port 6514 proto tcp
+sudo ufw allow from OFIS-IP to any port 8443 proto tcp
+sudo ufw allow OpenSSH
+sudo ufw enable
+```
+
+Her müşteri firewall'u için ilk üç satırı tekrarlayın.
+
+## 8. Firewall'lardan log gönderme
+
+Menü adları cihazın yazılım sürümüne göre değişebilir; tablo genel bir yol göstericidir.
+
+| Cihaz | Nereden | Ayar |
+| --- | --- | --- |
+| Sophos | System services > Log settings > Syslog servers > Add | Sunucu IP, port 514, Severity: Information. Gönderilecekler: Firewall rules, Invalid traffic, Web filter, Application filter, Admin events, Authentication events |
+| FortiGate | Log & Report > Log Settings > Remote Logging | `config log syslogd setting` → `set status enable`, `set server SUNUCU-IP`, `set port 514`, `set format default` |
+| pfSense / OPNsense | Status > System Logs > Settings > Remote Logging | Sunucu IP:514, "Firewall Events" ve "DHCP" seçili |
+| MikroTik | System > Logging > Actions | `remote` action: sunucu IP, port 514; firewall kurallarında `log=yes` |
+
+İç IP dağıtımı (DHCP) loglarını da göndermeyi unutmayın; 5651 kapsamında hangi iç IP'nin kime verildiği de sorulur.
+
+Kurulumdan sonra panelde müşterinin "Son log" sütununun güncellendiğini kontrol edin.
+
+## 9. Günlük işleyiş
+
+- **Her saat başı** biten saatin dosyası sıkıştırılır, açılıp hash'i kontrol edilir, ardından ham dosya silinir.
+- **Her gün 00:10'da** önceki gün için manifest oluşturulur, zaman damgası alınır ve gün "Mühürlü" olur. Manifest bir önceki günün manifestine hash ile bağlanır, böylece arada gün silinirse fark edilir.
+- **Her saat** saklama süresi dolan mühürlü günler silinir ve silme kaydı `/var/lib/syslog5651/_audit/audit.jsonl` dosyasına yazılır.
+- Panelde bir güne girip **Bütünlüğü doğrula** ile o günün bütün dosyaları kontrol edilir.
+- Denetimde **Doğrulama paketini indir** ile o günün manifesti, zaman damgası ve sıkıştırılmış dosyaları tek zip olarak alınır.
+
+Komut satırından doğrulama:
+
+```bash
+sudo -u syslog5651 syslog5651 verify -config /etc/syslog5651/config.yaml -tenant lojistik-as
+```
+
+Zaman damgasını servisten bağımsız olarak OpenSSL ile de kontrol edebilirsiniz:
+
+```bash
+openssl ts -verify -data manifest.json -in manifest.json.tsr -CAfile kamusm-root.crt
+```
+
+## 10. Yedekleme
+
+`/var/lib/syslog5651` klasörünü düzenli olarak başka bir diske veya nesne depolamaya kopyalayın (ör. `rsync -a` ile gece). Mühürlü dosyalar değişmez, bu yüzden artımlı yedek çok küçük olur. Ayarlar için `/etc/syslog5651` klasörünü de yedekleyin.
+
+## 11. Sorun giderme
+
+| Belirti | Kontrol |
+| --- | --- |
+| Panelde "Son 1 saatte log gelmedi" | Firewall syslog ayarı, ufw kuralı, `config.yaml` içindeki IP doğru mu? |
+| "Bilinmeyen kaynak" sayacı artıyor | Log gelen IP hiçbir müşteriye tanımlı değil. `journalctl` ile IP'yi görüp `sources` listesine ekleyin. |
+| Gün "Açık" kalıyor | Zaman damgası alınamıyor: `journalctl -u syslog5651 | grep "seal day"` |
+| Servis başlamıyor | `journalctl -u syslog5651 -n 50`; hatalı ayar satırı mesajda yazar. |

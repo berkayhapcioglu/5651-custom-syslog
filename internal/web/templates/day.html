@@ -1,0 +1,31 @@
+{{template "head" .Day}}
+{{template "nav" .}}
+<p class="crumbs"><a href="/">Müşteriler</a> / <a href="/t/{{.T.ID}}">{{.T.Name}}</a> / {{.Day}}</p>
+<h1>{{.T.Name}} · {{.Day}}</h1>
+{{if .Error}}<p class="err">{{.Error}}</p>{{end}}
+{{if .Sealed}}
+  <p><span class="ok">Mühürlü</span>{{with .Info}} · Manifest SHA-256 <code>{{.ManifestSHA256}}</code>{{if .StampTime}} · Zaman damgası {{.StampTime}} ({{.TSA}}){{end}}{{end}}</p>
+  <div class="actions">
+    <form method="post" action="/t/{{.T.ID}}/d/{{.Day}}/verify" class="inline">
+      <input type="hidden" name="csrf" value="{{.CSRF}}">
+      <button type="submit">Bütünlüğü doğrula</button>
+    </form>
+    <a class="button" href="/t/{{.T.ID}}/d/{{.Day}}/package.zip">Doğrulama paketini indir</a>
+  </div>
+{{else}}
+  <p class="muted">Gün henüz mühürlenmedi; gece yarısından sonra otomatik mühürlenir.</p>
+{{end}}
+<h2>Saatlik dosyalar</h2>
+<table>
+  <thead><tr><th>Cihaz</th><th>Saat</th><th>Satır</th><th>Ham</th><th>Saklanan</th><th>Oran</th><th>Ham SHA-256</th><th></th></tr></thead>
+  <tbody>
+  {{range .Hours}}
+    <tr>
+      <td>{{.Device}}</td><td>{{.Hour}}:00</td><td>{{.Lines}}</td><td>{{bytes .RawBytes}}</td><td>{{bytes .FileBytes}}</td><td>{{ratio .RawBytes .FileBytes}}</td>
+      <td><code class="hash">{{.RawSHA256}}</code></td>
+      <td><a href="/t/{{$.T.ID}}/d/{{$.Day}}/raw/{{.Device}}/{{.Hour}}">İndir</a></td>
+    </tr>
+  {{else}}<tr><td colspan="8">Bu gün için mühürlenmiş saat yok.</td></tr>{{end}}
+  </tbody>
+</table>
+{{template "foot"}}

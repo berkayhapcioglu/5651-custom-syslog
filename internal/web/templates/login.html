@@ -1,0 +1,13 @@
+{{template "head" "Giriş"}}
+<main class="narrow">
+  <h1>5651 Log Yönetimi</h1>
+  {{if .Error}}<p class="err">Kullanıcı adı veya şifre hatalı.</p>{{end}}
+  <form method="post" action="/login" class="card">
+    <input type="hidden" name="csrf" value="{{.CSRF}}">
+    <label>Kullanıcı adı <input name="username" autocomplete="username" required maxlength="64" autofocus></label>
+    <label>Şifre <input name="password" type="password" autocomplete="current-password" required maxlength="1024"></label>
+    <button type="submit">Giriş yap</button>
+  </form>
+</main>
+</body>
+</html>

@@ -1,0 +1,28 @@
+{{template "head" .T.Name}}
+{{template "nav" .}}
+<p class="crumbs"><a href="/">Müşteriler</a> / {{.T.Name}}</p>
+<h1>{{.T.Name}}</h1>
+<p>Saklama süresi: {{.T.RetentionDays}} gün · <a href="/t/{{.T.ID}}/search">Log ara</a></p>
+<h2>Cihazlar</h2>
+<table>
+  <thead><tr><th>Cihaz</th><th>Son log</th></tr></thead>
+  <tbody>
+  {{range .Devices}}<tr><td>{{.Name}}</td><td>{{localtime .Last}}</td></tr>
+  {{else}}<tr><td colspan="2">Servis açıldığından beri log gelmedi.</td></tr>{{end}}
+  </tbody>
+</table>
+<h2>Günler</h2>
+<table>
+  <thead><tr><th>Gün</th><th>Durum</th><th>Zaman damgası</th><th>Dosya</th><th>Satır</th><th>Ham</th><th>Saklanan</th><th>Oran</th></tr></thead>
+  <tbody>
+  {{range .Days}}
+    <tr>
+      <td><a href="/t/{{$.T.ID}}/d/{{.Day}}">{{.Day}}</a></td>
+      <td>{{if .Sealed}}<span class="ok">Mühürlü</span>{{else}}<span class="muted">Açık</span>{{end}}</td>
+      <td>{{if .StampTime}}{{.StampTime}}{{else}}-{{end}}</td>
+      <td>{{.Files}}</td><td>{{.Lines}}</td><td>{{bytes .Raw}}</td><td>{{bytes .Stored}}</td><td>{{ratio .Raw .Stored}}</td>
+    </tr>
+  {{else}}<tr><td colspan="8">Henüz kayıt yok.</td></tr>{{end}}
+  </tbody>
+</table>
+{{template "foot"}}

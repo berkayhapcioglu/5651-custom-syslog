@@ -1,0 +1,216 @@
+package store
+
+import (
+	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"io"
+	"log/slog"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"github.com/berkayhapcioglu/5651-custom-syslog/internal/colz"
+)
+
+// Sealer compresses closed hourly raw files and records them in the manifest.
+type Sealer struct {
+	Root  string
+	Codec colz.Codec
+	Log   *slog.Logger
+	// Now is overridable in tests.
+	Now func() time.Time
+}
+
+// SealHour seals one raw file at <root>/<tenant>/<day>/<device>/<HH>.log.
+// It is safe to call again after a crash at any point.
+func (s *Sealer) SealHour(rawPath string) error {
+	device := filepath.Base(filepath.Dir(rawPath))
+	dayDir := filepath.Dir(filepath.Dir(rawPath))
+	hour := strings.TrimSuffix(filepath.Base(rawPath), RawExt)
+	if !ValidDevice(device) || !ValidHour(hour) || !ValidDay(filepath.Base(dayDir)) {
+		return fmt.Errorf("seal: unexpected path %s", rawPath)
+	}
+	sealedPath := filepath.Join(filepath.Dir(rawPath), hour+SealedExt)
+
+	// Crash recovery: sealed and listed already, only the raw delete was lost.
+	if _, err := os.Stat(sealedPath); err == nil {
+		listed, err := HasHour(dayDir, device, hour)
+		if err != nil {
+			return err
+		}
+		if listed {
+			return os.Remove(rawPath)
+		}
+	}
+
+	rawSum, rawBytes, lines, err := hashFile(rawPath)
+	if err != nil {
+		return err
+	}
+	var buf bytes.Buffer
+	if err := s.encode(&buf, rawPath, false); err != nil {
+		return err
+	}
+	if !s.roundTrips(buf.Bytes(), rawSum) {
+		s.Log.Warn("columnar round trip failed, storing plain", "file", rawPath)
+		buf.Reset()
+		if err := s.encode(&buf, rawPath, true); err != nil {
+			return err
+		}
+		if !s.roundTrips(buf.Bytes(), rawSum) {
+			return fmt.Errorf("seal %s: compressed file does not decode to the original; raw kept", rawPath)
+		}
+	}
+
+	if err := writeFileSync(sealedPath, buf.Bytes(), 0o400); err != nil {
+		return err
+	}
+	fileSum := sha256.Sum256(buf.Bytes())
+	now := time.Now
+	if s.Now != nil {
+		now = s.Now
+	}
+	_, err = AppendHour(dayDir, HourEntry{
+		Device:     device,
+		Hour:       hour,
+		File:       filepath.Join(device, hour+SealedExt),
+		Lines:      lines,
+		RawBytes:   rawBytes,
+		RawSHA256:  hex.EncodeToString(rawSum[:]),
+		FileBytes:  int64(buf.Len()),
+		FileSHA256: hex.EncodeToString(fileSum[:]),
+		Codec:      s.Codec.Name(),
+		SealedAt:   now().UTC().Format(time.RFC3339),
+	})
+	if err != nil {
+		return err
+	}
+	s.Log.Info("sealed hour", "file", sealedPath, "raw_bytes", rawBytes, "sealed_bytes", buf.Len(),
+		"ratio", fmt.Sprintf("%.1f", float64(rawBytes)/float64(max(buf.Len(), 1))))
+	return os.Remove(rawPath)
+}
+
+func (s *Sealer) encode(w io.Writer, rawPath string, plain bool) error {
+	f, err := os.Open(rawPath) // #nosec G304 -- validated path under data dir
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	return colz.EncodeStream(w, f, s.Codec, plain)
+}
+
+func (s *Sealer) roundTrips(container []byte, want [32]byte) bool {
+	h := sha256.New()
+	if err := colz.DecodeTo(h, container, colz.Codecs()); err != nil {
+		return false
+	}
+	return bytes.Equal(h.Sum(nil), want[:])
+}
+
+func hashFile(p string) (sum [32]byte, size, lines int64, err error) {
+	f, err := os.Open(p) // #nosec G304 -- validated path under data dir
+	if err != nil {
+		return sum, 0, 0, err
+	}
+	defer f.Close()
+	h := sha256.New()
+	buf := make([]byte, 1<<20)
+	for {
+		n, rerr := f.Read(buf)
+		h.Write(buf[:n])
+		size += int64(n)
+		lines += int64(bytes.Count(buf[:n], []byte{'\n'}))
+		if rerr == io.EOF {
+			break
+		}
+		if rerr != nil {
+			return sum, 0, 0, rerr
+		}
+	}
+	copy(sum[:], h.Sum(nil))
+	return sum, size, lines, nil
+}
+
+// writeFileSync writes atomically: temp file, fsync, rename, fsync dir.
+func writeFileSync(path string, data []byte, perm os.FileMode) error {
+	dir := filepath.Dir(path)
+	f, err := os.CreateTemp(dir, ".tmp-*")
+	if err != nil {
+		return err
+	}
+	tmp := f.Name()
+	defer os.Remove(tmp)
+	if _, err := f.Write(data); err != nil {
+		f.Close()
+		return err
+	}
+	if err := f.Chmod(perm); err != nil {
+		f.Close()
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		f.Close()
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		return err
+	}
+	return syncDir(dir)
+}
+
+// WriteFileSync is the exported atomic write used by other packages.
+func WriteFileSync(path string, data []byte, perm os.FileMode) error {
+	return writeFileSync(path, data, perm)
+}
+
+func syncDir(dir string) error {
+	d, err := os.Open(dir) // #nosec G304 -- directory under data dir
+	if err != nil {
+		return err
+	}
+	defer d.Close()
+	if err := d.Sync(); err != nil && !errors.Is(err, os.ErrInvalid) {
+		return err
+	}
+	return nil
+}
+
+// ReadSealed decodes a sealed file and checks it against its manifest entry.
+func ReadSealed(dayDir string, e HourEntry) ([]byte, error) {
+	if !ValidDevice(e.Device) || !ValidHour(e.Hour) {
+		return nil, fmt.Errorf("invalid manifest entry %q/%q", e.Device, e.Hour)
+	}
+	// OpenInRoot refuses symlinks or ".." that would leave the day directory.
+	f, err := os.OpenInRoot(dayDir, filepath.Join(e.Device, e.Hour+SealedExt))
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	b, err := io.ReadAll(io.LimitReader(f, e.FileBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(b)) != e.FileBytes || hexSum(b) != e.FileSHA256 {
+		return nil, fmt.Errorf("%s: sealed file hash mismatch", e.File)
+	}
+	raw, err := colz.Decode(b, colz.Codecs())
+	if err != nil {
+		return nil, err
+	}
+	if hexSum(raw) != e.RawSHA256 {
+		return nil, fmt.Errorf("%s: decoded content hash mismatch", e.File)
+	}
+	return raw, nil
+}
+
+func hexSum(b []byte) string {
+	s := sha256.Sum256(b)
+	return hex.EncodeToString(s[:])
+}

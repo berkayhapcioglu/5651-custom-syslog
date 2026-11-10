@@ -1,0 +1,27 @@
+{{template "head" "Müşteriler"}}
+{{template "nav" .}}
+<h1>Müşteriler</h1>
+<table>
+  <thead><tr><th>Müşteri</th><th>Cihaz</th><th>Son log</th><th>Son mühürlenen gün</th><th>Zaman damgası</th><th>Durum</th></tr></thead>
+  <tbody>
+  {{range .Rows}}
+    <tr>
+      <td><a href="/t/{{.T.ID}}">{{.T.Name}}</a><br><small>{{.T.ID}}</small></td>
+      <td>{{.Devices}}</td>
+      <td>{{localtime .LastSeen}}</td>
+      <td>{{if .LastSealed}}<a href="/t/{{.T.ID}}/d/{{.LastSealed}}">{{.LastSealed}}</a>{{else}}-{{end}}</td>
+      <td>{{if .StampTime}}{{.StampTime}}{{else}}-{{end}}</td>
+      <td>{{if .Problem}}<span class="warn">{{.Problem}}</span>{{else}}<span class="ok">Normal</span>{{end}}</td>
+    </tr>
+  {{else}}
+    <tr><td colspan="6">Görebileceğiniz müşteri yok.</td></tr>
+  {{end}}
+  </tbody>
+</table>
+{{with .Stats}}
+<h2>Servis</h2>
+<table class="kv">
+  {{range $k, $v := .}}<tr><th>{{$k}}</th><td>{{$v}}</td></tr>{{end}}
+</table>
+{{end}}
+{{template "foot"}}

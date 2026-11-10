@@ -1,0 +1,21 @@
+{{template "head" "Arama"}}
+{{template "nav" .}}
+<p class="crumbs"><a href="/">Müşteriler</a> / <a href="/t/{{.T.ID}}">{{.T.Name}}</a> / Arama</p>
+<h1>Log ara · {{.T.Name}}</h1>
+<form method="get" action="/t/{{.T.ID}}/search" class="card row">
+  <label>Gün <input name="day" value="{{.Day}}" pattern="\d{4}-\d{2}-\d{2}" required></label>
+  <label>Cihaz (opsiyonel) <input name="device" value="{{.Device}}" maxlength="64"></label>
+  <label class="grow">Aranan metin <input name="q" value="{{.Q}}" maxlength="200" required></label>
+  <button type="submit">Ara</button>
+</form>
+{{if .Error}}<p class="err">{{.Error}}</p>{{end}}
+{{if .Q}}
+  <p>{{len .Hits}} sonuç{{if .Truncated}} (ilk {{len .Hits}} sonuç gösteriliyor, aramayı daraltın){{end}}</p>
+  <table class="log">
+    <thead><tr><th>Cihaz</th><th>Saat</th><th>Kayıt</th></tr></thead>
+    <tbody>
+    {{range .Hits}}<tr><td>{{.Device}}</td><td>{{.Hour}}</td><td><code>{{.Line}}</code></td></tr>{{end}}
+    </tbody>
+  </table>
+{{end}}
+{{template "foot"}}
