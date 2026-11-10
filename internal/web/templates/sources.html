@@ -37,7 +37,7 @@
     <p>Saklama {{.T.RetentionDays}} gün · lisans {{if .License.Set}}<span class="{{.License.Class}}">{{.License.Text}}</span> ({{daytr .License.Until}}){{else}}tanımsız{{end}}</p></div>
   </div>
   <div class="table-wrap"><table class="data">
-    <thead><tr><th>Adres / ağ</th><th>Cihaz adı</th><th>Ekleyen</th><th></th></tr></thead>
+    <thead><tr><th>Adres / ağ</th><th>Cihaz adı</th><th>Ekleyen</th><th><span class="sr-only">İşlem</span></th></tr></thead>
     <tbody>{{range .T.SourceList}}
       <tr><td><code>{{.Prefix}}</code></td><td>{{if .Label}}{{.Label}}{{else}}<span class="muted">-</span>{{end}}</td>
       <td>{{if eq .Origin "file"}}<span class="tag">config.yaml</span>{{else}}{{.AddedBy}}<small>{{stamp .Added}}</small>{{end}}</td>

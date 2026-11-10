@@ -3,7 +3,7 @@
 <div class="page-head"><div><h1>Kullanıcılar</h1><p class="sub">Yöneticiler bütün müşterileri görür; müşteri kullanıcıları sadece atanan müşterileri görür. Şifreler argon2id ile saklanır.</p></div></div>
 <section class="panel">
   <div class="table-wrap"><table class="data">
-    <thead><tr><th>Kullanıcı</th><th>Rol</th><th>Müşteriler</th><th></th></tr></thead>
+    <thead><tr><th>Kullanıcı</th><th>Rol</th><th>Müşteriler</th><th><span class="sr-only">İşlem</span></th></tr></thead>
     <tbody>{{range .Users}}{{$u := .}}
       <tr><td><span class="primary">{{.Username}}</span>{{if eq .Username $.Me}}<small>siz</small>{{end}}</td>
         <td>{{if eq .Role "admin"}}<span class="badge plain">Yönetici</span>{{else}}<span class="badge plain">Müşteri kullanıcısı</span>{{end}}</td>

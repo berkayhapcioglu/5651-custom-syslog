@@ -207,3 +207,43 @@ details.edit[open] > summary { margin-bottom: 12px; }
 .tag { display: inline-block; font-size: 11px; font-weight: 600; padding: 1px 6px; border-radius: 4px; background: var(--surface-2); border: 1px solid var(--line); color: var(--muted); }
 .stat .value.sm { font-size: 18px; }
 .chart text { font-size: 13px; }
+
+/* UI/UX testi düzeltmeleri */
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+.side .me .who b a { color: #fff; }
+.side .me .who b a:hover { text-decoration: underline; }
+table.data td > a:not(.primary):not(.btn) { text-decoration: underline; text-decoration-color: color-mix(in srgb, currentColor 40%, transparent); text-underline-offset: 3px; }
+table.data td > a:not(.primary):not(.btn):hover { text-decoration-color: currentColor; }
+.grid-2 { align-items: start; }
+/* Form ızgarası: alanlar üstten hizalı, açıklama metinleri alanları kaydırmaz, buton alanlarla aynı hizada */
+.form-grid { align-items: start; }
+.form-grid > div, .form-grid > .actions { padding-top: 25px; }
+.form-grid > fieldset { grid-column: 1 / -1; }
+fieldset { border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 10px 14px 12px; margin: 0; min-width: 0; }
+fieldset > legend { padding: 0 6px; font-size: 13px; font-weight: 500; color: var(--fg-2); }
+.panel-body > details.edit { margin-top: 16px; padding-top: 12px; border-top: 1px dashed var(--line); }
+details.edit > summary::before { content: "▸ "; }
+details.edit[open] > summary::before { content: "▾ "; }
+details.edit > form + form { margin-top: 14px; }
+/* Hash: tek satırda kısaltılır, kopyalanınca tamamı gelir */
+td .hash { display: inline-block; max-width: 22ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: middle; }
+.alert .hash { word-break: break-all; }
+/* Uzun sonuç listeleri: tablo kendi içinde kayar, başlık sabit kalır */
+.table-wrap.scroll { max-height: 70vh; overflow: auto; }
+table.log td { vertical-align: middle; }
+table.log td code { display: block; }
+.toolbar > button { align-self: flex-end; }
+.toolbar .actions { flex-wrap: nowrap; }
+.chart .empty-chart { fill: var(--muted); font-size: 14px; }
+.chart-empty { position: relative; }
+.chart-note { text-align: center; color: var(--muted); font-size: 13px; margin: -8px 0 0; }
+@media (max-width: 900px) {
+  .form-grid > div, .form-grid > .actions { padding-top: 0; }
+  td .hash { max-width: 12ch; }
+}
+/* İşlem sonucu bildirimi: sayfa bir bölüme kaydırılsa da görünür kalır */
+.content > main > .alert[role] { position: sticky; top: 8px; z-index: 5; box-shadow: 0 4px 14px rgba(16, 24, 40, .12); }
+.content > main > .alert.ok[role] { border-color: color-mix(in srgb, var(--ok) 30%, transparent); }
+.content > main > .alert.err[role] { border-color: color-mix(in srgb, var(--err) 30%, transparent); }
+section[id], .panel[id] { scroll-margin-top: 84px; }
+.nowrap code, td.nowrap code { white-space: nowrap; word-break: normal; }

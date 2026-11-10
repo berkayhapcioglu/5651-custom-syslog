@@ -21,14 +21,14 @@
   <div class="panel-head"><div><h2>Saatlik dosyalar</h2><p>Mühürlü dosyalar salt okunurdur; indirilen her dosya açılırken hash ile doğrulanır.</p></div>
   {{if .IsAdmin}}<form method="post" action="/t/{{.T.ID}}/d/{{.Day}}/reindex" class="inline">{{template "csrf" .CSRF}}<button class="secondary sm" type="submit">Arama dizinini yeniden oluştur</button></form>{{end}}</div>
   <div class="table-wrap"><table class="data">
-    <thead><tr><th>Cihaz</th><th>Saat</th><th class="num">Kayıt</th><th class="num">Ham</th><th class="num">Saklanan</th><th class="num">Oran</th><th>Dizin</th><th>Ham SHA-256</th><th></th></tr></thead>
+    <thead><tr><th>Cihaz</th><th>Saat</th><th class="num">Kayıt</th><th class="num">Ham</th><th class="num">Saklanan</th><th class="num">Oran</th><th>Dizin</th><th>Ham SHA-256</th><th><span class="sr-only">İndir</span></th></tr></thead>
     <tbody>
     {{range .Hours}}
       <tr>
         <td><span class="primary">{{.Device}}</span>{{with index $.Labels .Device}}<small>{{.}}</small>{{end}}</td><td>{{.Hour}}:00</td>
         <td class="num">{{thousands .Lines}}</td><td class="num">{{bytes .RawBytes}}</td><td class="num">{{bytes .FileBytes}}</td><td class="num">{{ratio .RawBytes .FileBytes}}</td>
         <td>{{if .Indexed}}<span class="badge ok">Var</span>{{else}}<span class="badge plain">Yok</span>{{end}}</td>
-        <td><span class="hash">{{.RawSHA256}}</span></td>
+        <td><span class="hash" title="{{.RawSHA256}}">{{.RawSHA256}}</span></td>
         <td><a class="btn secondary sm" href="/t/{{$.T.ID}}/d/{{$.Day}}/raw/{{.Device}}/{{.Hour}}">İndir</a></td>
       </tr>
     {{else}}<tr><td colspan="9"><div class="empty"><b>Mühürlenmiş saat yok</b><p>Açık saatler her saat başında mühürlenir.</p></div></td></tr>{{end}}
