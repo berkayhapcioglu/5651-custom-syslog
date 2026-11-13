@@ -29,6 +29,8 @@ type User struct {
 	PasswordHash string   `yaml:"password_hash"`
 	Role         string   `yaml:"role"`
 	Tenants      []string `yaml:"tenants,omitempty"`
+	// TOTPSecret turns on two-step login (base32, RFC 6238).
+	TOTPSecret string `yaml:"totp_secret,omitempty"`
 }
 
 // UsersFile is the on-disk user list.
@@ -63,6 +65,9 @@ func LoadUsers(path string) (map[string]User, error) {
 		}
 		if _, err := parseHash(u.PasswordHash); err != nil {
 			return nil, fmt.Errorf("users file: user %s: %w", u.Username, err)
+		}
+		if u.TOTPSecret != "" && !validTOTPSecret(u.TOTPSecret) {
+			return nil, fmt.Errorf("users file: user %s: bad totp_secret", u.Username)
 		}
 		if _, dup := out[u.Username]; dup {
 			return nil, fmt.Errorf("users file: duplicate user %s", u.Username)
@@ -263,6 +268,8 @@ type session struct {
 	created time.Time
 	flashOK string
 	flashEr string
+	// totpPending is the secret shown while two-step login is being set up.
+	totpPending string
 }
 
 type sessions struct {
@@ -347,4 +354,12 @@ func (s *sessions) popFlash(id string) (string, string) {
 	ok, er := ss.flashOK, ss.flashEr
 	ss.flashOK, ss.flashEr = "", ""
 	return ok, er
+}
+
+func (s *sessions) setTOTPPending(id, secret string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if ss := s.m[id]; ss != nil {
+		ss.totpPending = secret
+	}
 }

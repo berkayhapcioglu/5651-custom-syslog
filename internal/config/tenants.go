@@ -94,6 +94,10 @@ type TenantSettings struct {
 type PanelSettings struct {
 	DefaultRetentionDays int `json:"default_retention_days,omitempty"`
 	LicenseWarnDays      int `json:"license_warn_days,omitempty"`
+	// AlertEmails receive alert e-mails (alerts.smtp_* in config.yaml).
+	AlertEmails []string `json:"alert_emails,omitempty"`
+	// SilentHours: a tenant that sent nothing for this long raises an alert.
+	SilentHours int `json:"silent_hours,omitempty"`
 }
 
 // PanelDir is the directory under data_dir that holds panel state.
@@ -107,6 +111,14 @@ func (c *Config) DefaultRetention() int {
 		return p.Settings.DefaultRetentionDays
 	}
 	return c.RetentionDays
+}
+
+// SilentHours is how long a tenant may send nothing before an alert.
+func (c *Config) SilentHours() int {
+	if p := c.PanelCopy(); p.Settings.SilentHours > 0 {
+		return p.Settings.SilentHours
+	}
+	return 2
 }
 
 // LicenseWarnDays is how many days before expiry the panel starts warning.

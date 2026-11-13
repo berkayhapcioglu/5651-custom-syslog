@@ -34,6 +34,7 @@ import (
 
 	"github.com/berkayhapcioglu/5651-custom-syslog/internal/config"
 	"github.com/berkayhapcioglu/5651-custom-syslog/internal/ingest"
+	"github.com/berkayhapcioglu/5651-custom-syslog/internal/notify"
 	"github.com/berkayhapcioglu/5651-custom-syslog/internal/store"
 )
 
@@ -59,6 +60,12 @@ type Server struct {
 	tpl    *template.Template
 	sums   *sumCache
 	cpu    cpuSampler
+	steps  usedSteps
+	pend   pendingLogins
+	alerts alerter
+
+	// Mailer sends alert e-mails; nil or unconfigured means none are sent.
+	Mailer *notify.Mailer
 }
 
 // New builds the server. Users are read from cfg.Web.UsersFile and reloaded
@@ -82,6 +89,7 @@ func New(cfg *config.Config, log *slog.Logger, seen *LastSeen) (*Server, error) 
 		return nil, err
 	}
 	s.tpl = t
+	s.loadAlerts()
 	return s, nil
 }
 
@@ -90,8 +98,11 @@ func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	static, _ := fsSub(assets, "static")
 	mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServerFS(static)))
+	mux.HandleFunc("GET /healthz", s.healthz)
 	mux.HandleFunc("GET /login", s.loginPage)
 	mux.HandleFunc("POST /login", s.loginPost)
+	mux.HandleFunc("GET /login/2fa", s.login2faPage)
+	mux.HandleFunc("POST /login/2fa", s.login2faPost)
 	mux.HandleFunc("POST /logout", s.auth(s.logout))
 	mux.HandleFunc("GET /{$}", s.auth(s.dashboard))
 	mux.HandleFunc("GET /t", s.auth(s.tenantsPage))
@@ -102,9 +113,14 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /t/{tenant}/d/{day}/package.zip", s.auth(s.packageZip))
 	mux.HandleFunc("GET /t/{tenant}/d/{day}/raw/{device}/{hour}", s.auth(s.rawHour))
 	mux.HandleFunc("GET /t/{tenant}/search", s.auth(s.search))
+	mux.HandleFunc("GET /t/{tenant}/search.csv", s.auth(s.searchCSV))
+	mux.HandleFunc("GET /t/{tenant}/report", s.auth(s.reportPage))
 	mux.HandleFunc("GET /search", s.auth(s.search))
 	mux.HandleFunc("GET /account", s.auth(s.accountPage))
 	mux.HandleFunc("POST /account/password", s.auth(s.accountPassword))
+	mux.HandleFunc("POST /account/2fa/start", s.auth(s.account2faStart))
+	mux.HandleFunc("POST /account/2fa/enable", s.auth(s.account2faEnable))
+	mux.HandleFunc("POST /account/2fa/disable", s.auth(s.account2faDisable))
 	mux.HandleFunc("GET /admin/sources", s.admin(s.sourcesPage))
 	mux.HandleFunc("POST /admin/sources/tenant", s.admin(s.tenantSave))
 	mux.HandleFunc("POST /admin/sources/tenant/delete", s.admin(s.tenantDelete))
@@ -113,8 +129,11 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /admin/users", s.admin(s.usersPage))
 	mux.HandleFunc("POST /admin/users/save", s.admin(s.userSave))
 	mux.HandleFunc("POST /admin/users/delete", s.admin(s.userDelete))
+	mux.HandleFunc("POST /admin/users/reset2fa", s.admin(s.userReset2fa))
 	mux.HandleFunc("GET /admin/settings", s.admin(s.settingsPage))
 	mux.HandleFunc("POST /admin/settings", s.admin(s.settingsSave))
+	mux.HandleFunc("POST /admin/settings/alerts", s.admin(s.alertSettingsSave))
+	mux.HandleFunc("POST /admin/settings/alerts/test", s.admin(s.alertTest))
 	mux.HandleFunc("GET /admin/audit", s.admin(s.auditPage))
 	return s.secure(mux)
 }
@@ -150,6 +169,7 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 		srv.Shutdown(c)
 	}()
 	go s.cpu.run(ctx)
+	go s.alertLoop(ctx)
 	s.Log.Info("web listening", "addr", s.Cfg.Web.Listen, "tls", !s.Insecure)
 	var err error
 	if s.Insecure {
@@ -268,6 +288,17 @@ func (s *Server) audit(r *http.Request, user, event string, kv ...any) {
 	}
 }
 
+// auditSystem records an event of the service itself (no request).
+func (s *Server) auditSystem(event string, kv ...any) {
+	ev := map[string]any{"time": time.Now().UTC().Format(time.RFC3339), "event": event, "user": "system"}
+	for i := 0; i+1 < len(kv); i += 2 {
+		ev[fmt.Sprint(kv[i])] = kv[i+1]
+	}
+	if err := store.AppendAudit(s.Cfg.DataDir, ev); err != nil {
+		s.Log.Error("audit", "err", err)
+	}
+}
+
 // ---- login ----
 
 func (s *Server) loginPage(w http.ResponseWriter, r *http.Request) {
@@ -315,7 +346,24 @@ func (s *Server) loginPost(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/login?e=1", http.StatusSeeOther)
 		return
 	}
-	s.limIP.success("ip:" + ip)
+	if u.TOTPSecret != "" {
+		// Password is right; the code is asked on the next page. The failure
+		// counters are only reset once the code is right too.
+		tok := s.pend.add(u.Username, now)
+		// #nosec G124 -- Secure is false only in the explicit allow_insecure_http test mode
+		http.SetCookie(w, &http.Cookie{Name: s.cookieName() + "-2fa", Value: tok, Path: "/", MaxAge: int(pendingTTL.Seconds()),
+			Secure: !s.Insecure, HttpOnly: true, SameSite: http.SameSiteStrictMode})
+		s.audit(r, name, "login_password_ok")
+		http.Redirect(w, r, "/login/2fa", http.StatusSeeOther)
+		return
+	}
+	s.finishLogin(w, r, u, now)
+}
+
+// finishLogin creates the session after every login step succeeded.
+func (s *Server) finishLogin(w http.ResponseWriter, r *http.Request, u User, now time.Time) {
+	name := u.Username
+	s.limIP.success("ip:" + clientIP(r))
 	s.limUsr.success("u:" + name)
 	id, _ := s.sess.create(u, now)
 	// #nosec G124 -- Secure is false only in the explicit allow_insecure_http test mode

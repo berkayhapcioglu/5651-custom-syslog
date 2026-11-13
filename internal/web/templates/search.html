@@ -17,7 +17,7 @@
   {{if .Error}}<div class="panel-body"><div class="alert err"><span>!</span><div><b>{{.Error}}</b></div></div></div>{{end}}
   {{if .Searched}}
     <div class="panel-head"><div><h2>{{len .Hits}} sonuç{{if .Truncated}} (ilk {{len .Hits}}, aramayı daraltın){{end}}</h2>
-    <p>{{.Stats.Hours}} saat incelendi · {{.Stats.Skipped}} saat arama dizini sayesinde açılmadan atlandı · {{.Stats.Read}} saat açıldı · {{.Stats.Elapsed}}</p></div></div>
+    <p>{{.Stats.Hours}} saat incelendi · {{.Stats.Skipped}} saat arama dizini sayesinde açılmadan atlandı · {{.Stats.Read}} saat açıldı · {{.Stats.Elapsed}}</p></div>{{if .Hits}}<a class="btn secondary sm" href="{{.CSVURL}}">CSV indir{{if .Truncated}} (en çok 100.000){{end}}</a>{{end}}</div>
     {{if .Hits}}
     <div class="table-wrap scroll" tabindex="0" role="region" aria-label="Sonuçlar"><table class="data log">
       <thead><tr><th>Zaman</th><th>Cihaz</th><th>Kayıt</th></tr></thead>

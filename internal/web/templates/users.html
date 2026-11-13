@@ -3,11 +3,12 @@
 <div class="page-head"><div><h1>Kullanıcılar</h1><p class="sub">Yöneticiler bütün müşterileri görür; müşteri kullanıcıları sadece atanan müşterileri görür. Şifreler argon2id ile saklanır.</p></div></div>
 <section class="panel">
   <div class="table-wrap"><table class="data">
-    <thead><tr><th>Kullanıcı</th><th>Rol</th><th>Müşteriler</th><th><span class="sr-only">İşlem</span></th></tr></thead>
+    <thead><tr><th>Kullanıcı</th><th>Rol</th><th>Müşteriler</th><th>İki adımlı giriş</th><th><span class="sr-only">İşlem</span></th></tr></thead>
     <tbody>{{range .Users}}{{$u := .}}
       <tr><td><span class="primary">{{.Username}}</span>{{if eq .Username $.Me}}<small>siz</small>{{end}}</td>
         <td>{{if eq .Role "admin"}}<span class="badge plain">Yönetici</span>{{else}}<span class="badge plain">Müşteri kullanıcısı</span>{{end}}</td>
         <td>{{if eq .Role "admin"}}<span class="muted">Hepsi</span>{{else}}{{join .Tenants ", "}}{{end}}</td>
+        <td>{{if .TOTPSecret}}<span class="badge ok">Açık</span>{{else}}<span class="badge{{if eq .Role "admin"}} warn{{end}}">Kapalı</span>{{end}}</td>
         <td>
           <details class="edit"><summary>Düzenle</summary>
             <form method="post" action="/admin/users/save" class="form-stack">
@@ -17,6 +18,7 @@
               <label>Yeni şifre <input name="password" type="password" minlength="12" maxlength="1024" autocomplete="new-password" placeholder="Boş bırakılırsa değişmez"></label>
               <div class="actions"><button type="submit" class="sm">Kaydet</button></div>
             </form>
+            {{if and .TOTPSecret (ne .Username $.Me)}}<form method="post" action="/admin/users/reset2fa" class="actions">{{template "csrf" $.CSRF}}<input type="hidden" name="username" value="{{.Username}}"><button class="secondary sm" type="submit">İki adımlı girişi sıfırla (telefon kaybı)</button></form>{{end}}
             {{if ne .Username $.Me}}<form method="post" action="/admin/users/delete" class="actions">{{template "csrf" $.CSRF}}<input type="hidden" name="username" value="{{.Username}}"><button class="danger sm" type="submit">Kullanıcıyı sil</button></form>{{end}}
           </details>
         </td></tr>

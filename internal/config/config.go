@@ -4,9 +4,11 @@ package config
 import (
 	"errors"
 	"fmt"
+	"net/mail"
 	"net/netip"
 	"os"
 	"regexp"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -23,6 +25,7 @@ type Config struct {
 	Compression Compression `yaml:"compression"`
 	Timestamp   Timestamp   `yaml:"timestamp"`
 	Web         Web         `yaml:"web"`
+	Alerts      Alerts      `yaml:"alerts"`
 
 	// RetentionDays is the default retention for tenants that do not set one.
 	RetentionDays int `yaml:"retention_days"`
@@ -105,6 +108,20 @@ type Web struct {
 	SessionTTL Duration `yaml:"session_ttl"`
 	// AllowInsecureHTTP permits plain HTTP; only for local testing behind a TLS proxy.
 	AllowInsecureHTTP bool `yaml:"allow_insecure_http"`
+}
+
+// Alerts configures the mail server for alert e-mails. Recipients and
+// thresholds are set in the panel.
+type Alerts struct {
+	SMTPHost string `yaml:"smtp_host"`
+	SMTPPort int    `yaml:"smtp_port"`
+	// SMTPTLS: "starttls" (default, port 587), "tls" (port 465) or "none"
+	// (only for a mail relay on this machine).
+	SMTPTLS  string `yaml:"smtp_tls"`
+	Username string `yaml:"username"`
+	// PasswordFile holds the SMTP password (never put secrets in this file).
+	PasswordFile string `yaml:"password_file"`
+	From         string `yaml:"from"`
 }
 
 // Tenant is one customer.
@@ -216,6 +233,15 @@ func (c *Config) defaults() {
 	if c.Timestamp.Timeout.Duration == 0 {
 		c.Timestamp.Timeout.Duration = 30 * time.Second
 	}
+	if c.Alerts.SMTPTLS == "" {
+		c.Alerts.SMTPTLS = "starttls"
+	}
+	if c.Alerts.SMTPPort == 0 {
+		c.Alerts.SMTPPort = map[string]int{"tls": 465, "none": 25}[c.Alerts.SMTPTLS]
+		if c.Alerts.SMTPPort == 0 {
+			c.Alerts.SMTPPort = 587
+		}
+	}
 	if c.Web.SessionTTL.Duration == 0 {
 		c.Web.SessionTTL.Duration = 8 * time.Hour
 	}
@@ -266,6 +292,26 @@ func (c *Config) validate() error {
 		}
 		if !c.Web.AllowInsecureHTTP && (c.Web.TLSCert == "" || c.Web.TLSKey == "") {
 			return errors.New("web needs tls_cert and tls_key (or allow_insecure_http for testing)")
+		}
+	}
+	if a := c.Alerts; a.SMTPHost != "" {
+		if _, err := mail.ParseAddress(a.From); err != nil {
+			return fmt.Errorf("alerts.from: %w", err)
+		}
+		switch a.SMTPTLS {
+		case "starttls", "tls":
+		case "none":
+			if h := strings.ToLower(a.SMTPHost); h != "localhost" && h != "127.0.0.1" && h != "::1" {
+				return errors.New("alerts.smtp_tls none is only allowed for a mail relay on localhost")
+			}
+		default:
+			return fmt.Errorf("alerts.smtp_tls %q: want starttls, tls or none", a.SMTPTLS)
+		}
+		if a.SMTPPort < 1 || a.SMTPPort > 65535 {
+			return errors.New("alerts.smtp_port is out of range")
+		}
+		if (a.Username == "") != (a.PasswordFile == "") {
+			return errors.New("alerts.username and alerts.password_file go together")
 		}
 	}
 

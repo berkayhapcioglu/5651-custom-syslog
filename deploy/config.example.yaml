@@ -57,6 +57,16 @@ web:
   users_file: /var/lib/syslog5651/_panel/users.yaml  # panelden yönetilir
   session_ttl: 8h
 
+# E-posta uyarıları için posta sunucusu. Alıcılar ve log kesintisi süresi
+# panelde Ayarlar sayfasından girilir. Boş bırakılırsa e-posta gönderilmez.
+# alerts:
+#   smtp_host: smtp.firma.com.tr
+#   smtp_port: 587            # starttls için 587, tls için 465
+#   smtp_tls: starttls        # starttls | tls | none (none sadece localhost için)
+#   username: log@firma.com.tr
+#   password_file: /etc/syslog5651/smtp-password
+#   from: "5651 Log <log@firma.com.tr>"
+
 # Tanımsız IP'lerden gelen loglar atılır. İsterseniz hepsini bir müşteriye yönlendirin:
 # default_tenant: diger
 

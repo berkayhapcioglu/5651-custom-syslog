@@ -188,7 +188,14 @@ func (s *Server) settingsPage(w http.ResponseWriter, r *http.Request, ss *sessio
 		{"config.yaml varsayılan saklama", fmt.Sprintf("%d gün", c.RetentionDays)},
 	}
 	p := c.PanelCopy()
+	active, history := s.activeAlerts()
+	mail := "Tanımlı değil (config.yaml: alerts)"
+	if s.Mailer.Enabled() {
+		mail = fmt.Sprintf("%s:%d (%s), gönderen %s", c.Alerts.SMTPHost, c.Alerts.SMTPPort, c.Alerts.SMTPTLS, c.Alerts.From)
+	}
 	s.render(w, "settings.html", s.page(r, ss, "settings", map[string]any{
+		"Alerts": active, "AlertHistory": history, "MailServer": mail, "MailOn": s.Mailer.Enabled(),
+		"AlertEmails": strings.Join(p.Settings.AlertEmails, "\n"), "SilentHours": c.SilentHours(),
 		"Status": s.status(time.Now()), "Config": cfg,
 		"DefaultRetention": c.DefaultRetention(), "LicenseWarnDays": c.LicenseWarnDays(),
 		"PanelSettings": p.Settings,

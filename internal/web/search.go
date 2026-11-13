@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/csv"
 	"fmt"
 	"net/http"
 	"os"
@@ -27,6 +28,7 @@ type hit struct {
 const (
 	maxQuery      = 200
 	maxHits       = 500
+	maxCSVHits    = 100000
 	maxSearchDays = 366
 	searchTimeout = 60 * time.Second
 )
@@ -48,6 +50,7 @@ type searchReq struct {
 	truncated    bool
 	timedOut     bool
 	indexSkipped int
+	limit        int
 }
 
 type searchStats struct {
@@ -58,6 +61,15 @@ type searchStats struct {
 }
 
 func (s *Server) search(w http.ResponseWriter, r *http.Request, ss *session) {
+	s.doSearch(w, r, ss, false)
+}
+
+// searchCSV downloads the hits of a search (up to maxCSVHits) as CSV.
+func (s *Server) searchCSV(w http.ResponseWriter, r *http.Request, ss *session) {
+	s.doSearch(w, r, ss, true)
+}
+
+func (s *Server) doSearch(w http.ResponseWriter, r *http.Request, ss *session, csvOut bool) {
 	q := r.URL.Query()
 	id := r.PathValue("tenant")
 	if id == "" {
@@ -106,6 +118,19 @@ func (s *Server) search(w http.ResponseWriter, r *http.Request, ss *session) {
 		data["DeviceList"] = s.deviceList(t)
 	}
 	render := func() { s.render(w, "search.html", s.page(r, ss, "search", data)) }
+	if csvOut {
+		render = func() {
+			msg, _ := data["Error"].(string)
+			if msg == "" {
+				msg = "Arama metni girin"
+			}
+			http.Error(w, msg, http.StatusConflict)
+		}
+	}
+	req.limit = maxHits
+	if csvOut {
+		req.limit = maxCSVHits
+	}
 	if req.Q == "" || t == nil {
 		render()
 		return
@@ -140,7 +165,7 @@ func (s *Server) search(w http.ResponseWriter, r *http.Request, ss *session) {
 	}
 	req.labels = map[string]string{}
 	s.audit(r, ss.user.Username, "search", "tenant", t.ID, "from", req.From, "to", req.To, "hours", fmt.Sprintf("%02d-%02d", req.HFrom, req.HTo),
-		"device", req.Device, "mode", map[bool]string{true: "text", false: "word"}[req.Text], "query", req.Q)
+		"device", req.Device, "mode", map[bool]string{true: "text", false: "word"}[req.Text], "query", req.Q, "csv", csvOut)
 	ctx, cancel := context.WithTimeout(r.Context(), searchTimeout)
 	defer cancel()
 	start := time.Now()
@@ -152,7 +177,12 @@ func (s *Server) search(w http.ResponseWriter, r *http.Request, ss *session) {
 	if req.timedOut {
 		data["Error"] = "Arama zaman aşımına uğradı; bulunanlar gösteriliyor. Tarih aralığını ya da saatleri daraltın."
 	}
+	if csvOut {
+		s.writeCSV(w, req)
+		return
+	}
 	data["Hits"] = req.hits
+	data["CSVURL"] = "/t/" + t.ID + "/search.csv?" + r.URL.RawQuery
 	data["Truncated"] = req.truncated
 	data["Stats"] = req.stats
 	data["Searched"] = true
@@ -351,4 +381,34 @@ func (s *Server) searchHour(dir string, f hourFile, req *searchReq) bool {
 		}
 	}
 	return false
+}
+
+func (s *Server) writeCSV(w http.ResponseWriter, req *searchReq) {
+	name := fmt.Sprintf("arama-%s-%s-%s.csv", req.Tenant.ID, req.From, req.To)
+	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
+	w.Header().Set("Content-Disposition", `attachment; filename="`+name+`"`)
+	w.Write([]byte("\xef\xbb\xbf")) // BOM so Excel reads UTF-8
+	cw := csv.NewWriter(w)
+	cw.Comma = ';' // Excel in Turkish locale
+	_ = cw.Write([]string{"Zaman", "Cihaz", "Cihaz adı", "Kayıt"})
+	loc := s.Cfg.Location()
+	for _, h := range req.hits {
+		ts := ""
+		if !h.Time.IsZero() {
+			ts = h.Time.In(loc).Format("02.01.2006 15:04:05")
+		}
+		_ = cw.Write([]string{ts, csvSafe(h.Device), csvSafe(h.Label), csvSafe(h.Line)})
+	}
+	if req.truncated {
+		_ = cw.Write([]string{"", "", "", fmt.Sprintf("(ilk %d sonuç; aramayı daraltın)", req.limit)})
+	}
+	cw.Flush()
+}
+
+// csvSafe keeps spreadsheet programs from running a cell as a formula.
+func csvSafe(v string) string {
+	if v != "" && strings.ContainsRune("=+-@\t\r", rune(v[0])) {
+		return "'" + v
+	}
+	return v
 }

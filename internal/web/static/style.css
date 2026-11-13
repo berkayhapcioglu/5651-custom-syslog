@@ -247,3 +247,26 @@ table.log td code { display: block; }
 .content > main > .alert.err[role] { border-color: color-mix(in srgb, var(--err) 30%, transparent); }
 section[id], .panel[id] { scroll-margin-top: 84px; }
 .nowrap code, td.nowrap code { white-space: nowrap; word-break: normal; }
+
+/* sürüm 0.3 eklemeleri */
+.qr-box { margin: 10px 0; }
+.qr-box svg.qr { display: block; border: 1px solid var(--line); border-radius: var(--radius-sm); background: #fff; }
+ol.steps { padding-left: 20px; margin: 0 0 12px; }
+ol.steps li { margin-bottom: 10px; }
+main.report { max-width: 1000px; margin: 0 auto; padding: 24px 20px 48px; }
+.report-bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 20px; }
+.report-head { margin-bottom: 16px; }
+.report-head h1 { margin: 10px 0 2px; }
+.report-kv { margin-bottom: 16px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); }
+.report-stats { margin-bottom: 16px; }
+.report-days { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); margin-bottom: 20px; }
+.report-note { font-size: 13.5px; color: var(--muted); }
+.report-note h2 { font-size: 15px; color: var(--fg); }
+@media print {
+  .report-bar { display: none; }
+  main.report { padding: 0; max-width: none; }
+  body { background: #fff; }
+  .report-days tr { break-inside: avoid; }
+}
+.report-head .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 16px; }
+.report-head .brand .logo { min-width: 34px; padding: 0 7px; height: 34px; border-radius: 9px; background: var(--brand); color: #fff; display: grid; place-items: center; font-size: 12.5px; font-weight: 800; }

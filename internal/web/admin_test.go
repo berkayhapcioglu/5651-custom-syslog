@@ -187,3 +187,31 @@ func TestErrorPages(t *testing.T) {
 		t.Fatalf("405 page: %d", code)
 	}
 }
+
+func TestReportCSVHealth(t *testing.T) {
+	ts, dir := testServer(t)
+	c := client(ts)
+	login(t, ts, c, "ali", testPassword)
+	code, body, _ := get(t, c, ts.URL+"/t/musteri-a/report?month=2026-11")
+	if code != 200 || !strings.Contains(body, "Kasım 2026") || !strings.Contains(body, "Bütünlük Raporu") {
+		t.Fatalf("report: %d", code)
+	}
+	if code, _, _ := get(t, c, ts.URL+"/t/musteri-b/report"); code != http.StatusNotFound {
+		t.Fatal("other tenant's report")
+	}
+	if code, _, _ := get(t, c, ts.URL+"/t/musteri-b/search.csv?q=x"); code != http.StatusNotFound {
+		t.Fatal("other tenant's csv")
+	}
+	// A raw (open) hour with a formula-looking line.
+	raw := filepath.Join(dir, "musteri-a", "2026-11-09", "10.0.0.1")
+	os.MkdirAll(raw, 0o750)
+	os.WriteFile(filepath.Join(raw, "10.log"), []byte("2026-11-09T07:00:00.000000000Z\t10.0.0.1\t=HYPERLINK(\"x\") user=ali\n"), 0o600)
+	code, body, h := get(t, c, ts.URL+"/t/musteri-a/search.csv?q=ali&from=2026-11-09&to=2026-11-09")
+	if code != 200 || !strings.HasPrefix(h.Get("Content-Type"), "text/csv") || !strings.Contains(body, "'=HYPERLINK") {
+		t.Fatalf("csv: %d %q", code, body)
+	}
+	code, body, _ = get(t, client(ts), ts.URL+"/healthz")
+	if code != 200 || !strings.Contains(body, `"status":"ok"`) {
+		t.Fatalf("healthz: %d %s", code, body)
+	}
+}

@@ -125,6 +125,8 @@ Sonraki kullanıcıları panelde **Kullanıcılar** sayfasından ekleyin. Müşt
 sudo syslog5651 useradd -name lojistik -role tenant -tenants lojistik-as
 ```
 
+**İki adımlı giriş:** Her kullanıcı **Hesabım** sayfasından açabilir. Ekrandaki QR kodu Google Authenticator, Microsoft Authenticator gibi bir uygulamayla okutulur; sonraki girişlerde şifreden sonra uygulamadaki 6 haneli kod istenir. Yöneticiler için açılması önerilir (Kullanıcılar sayfasında kimde açık olduğu görünür). Telefonunu kaybeden kullanıcı için yönetici **Kullanıcılar** sayfasında "İki adımlı girişi sıfırla"ya basar; son yönetici kendi telefonunu kaybettiyse sunucuda `sudo syslog5651 useradd -name admin -role admin -reset-2fa` çalıştırılır.
+
 Şifre en az 12 karakter olmalıdır ve argon2id ile saklanır. Kullanıcılar `/var/lib/syslog5651/_panel/users.yaml` dosyasındadır; komut satırından yapılan değişiklikler birkaç saniye içinde servis yeniden başlatılmadan geçerli olur. Şifresi değişen ya da silinen kullanıcının açık oturumları hemen kapanır. Herkes kendi şifresini **Hesabım** sayfasından değiştirebilir. En az bir yönetici her zaman kalır.
 
 ## 6. Servisi başlatma
@@ -138,6 +140,23 @@ sudo journalctl -u syslog5651 -f      # canlı servis kayıtları
 Web arayüzü: `https://SUNUCU-IP:8443`
 
 Kendinden imzalı sertifika olduğu için tarayıcı ilk girişte uyarı verir. Kalıcı çözüm için kendi sertifikanızı `/etc/syslog5651/tls/server.crt` ve `server.key` olarak koyun (`chown root:syslog5651`, anahtar için `chmod 0640`) ve servisi yeniden başlatın.
+
+## 6a. E-posta uyarıları
+
+Servis bir sorun olduğunda e-posta atar: bir müşteriden belirlenen süre (varsayılan 2 saat) log gelmemesi, bir günün mühürlenememesi (zaman damgası alınamıyor), veri diskinin %90 dolması, log dosyalarına yazılamaması, lisansın bitmesi ya da yaklaşması, web/TLS/zaman damgası sertifikalarının bitmesine 30 günden az kalması. Sorun başlayınca, sürerse günde bir (lisans ve sertifika için haftada bir) ve düzelince e-posta gelir.
+
+1. Posta sunucusunu `config.yaml` içindeki `alerts` bölümüne yazın (örnek dosyada açıklamalı hali var) ve şifreyi ayrı bir dosyaya koyun:
+
+```bash
+sudo sh -c 'printf "%s" "SMTP-SIFRESI" > /etc/syslog5651/smtp-password'
+sudo chown root:syslog5651 /etc/syslog5651/smtp-password
+sudo chmod 0640 /etc/syslog5651/smtp-password
+sudo systemctl restart syslog5651
+```
+
+2. Panelde **Ayarlar ve durum > E-posta uyarıları** bölümüne alıcıları yazın ve **Deneme e-postası gönder** ile kontrol edin. Aynı bölümde şu anki sorunlar ve son gönderilen bildirimler listelenir.
+
+Uyarılar şifreli bağlantı olmadan gönderilmez (STARTTLS ya da TLS). Zabbix, Uptime Kuma gibi bir izleme aracınız varsa `https://SUNUCU:8443/healthz` adresini izletebilirsiniz: sorun yokken 200, hata düzeyinde bir sorun varken 503 döner (giriş gerektirmez, müşteri bilgisi içermez).
 
 ## 7. Sunucu firewall'u (ufw)
 
@@ -177,6 +196,8 @@ Kurulumdan sonra panelde müşterinin "Son log" sütununun güncellendiğini kon
 
 - Her mühürlenen saat için küçük bir arama indeksi (`.idx`, sıkıştırılmış verinin yaklaşık %1-4'ü) yazılır. İndeks mühürün dışındadır: silinse ya da bozulsa bile mühür ve doğrulama etkilenmez, arama o saati baştan tarar ve indeksi yeniden oluşturur. Yönetici bir günün sayfasından **İndeksi yeniden oluştur** diyebilir.
 - **Arama** sayfasında tarih aralığı, saat aralığı ve cihaz seçilir. "Tam kelime" modu (ör. kullanıcı adı, IP, alan adı) indeks sayesinde aranan kelimenin geçmediği saatleri açmadan atlar; "Metnin içinde" modu her satırı tarar. En fazla 500 sonuç gösterilir ve her arama denetim kaydına yazılır.
+- Müşteri sayfasındaki **Aylık rapor**, seçilen ay için her günün kayıt sayısını, saklanan boyutu, mühür ve zaman damgası bilgisini gösterir. Tarayıcıda Yazdır > PDF olarak kaydet ile müşteriye gönderilebilir. Müşteri kullanıcıları kendi raporlarını alabilir.
+- Arama sonuçları **CSV indir** ile Excel'de açılabilir (en çok 100.000 satır, Türkçe Excel için `;` ayraçlı).
 - **Denetim kaydı** sayfası kim, ne zaman, hangi IP'den giriş yaptı, ne aradı, neyi değiştirdi gösterir.
 
 Komut satırından doğrulama:

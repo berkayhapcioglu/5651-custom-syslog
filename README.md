@@ -21,7 +21,9 @@ Kurulum için: [KURULUM.md](KURULUM.md)
 - **Müşteri ve gün sayfaları:** tarih aralığı ve duruma göre filtre, saatlik dosyalar, cihaz adları, bütünlük doğrulama, denetim için zip paketi.
 - **Arama:** tarih ve saat aralığı, cihaz, tam kelime ya da metin içinde.
 - **Log kaynakları:** müşteri ekleme, firewall IP'si ekleme/kaldırma, bilinmeyen kaynaklar, saklama süresi ve lisans tarihi. Yeniden başlatma gerekmez.
-- **Kullanıcılar, Hesabım, Ayarlar, Denetim kaydı.**
+- **E-posta uyarıları:** log kesintisi, mühürlenemeyen gün, disk, yazma hatası, lisans ve sertifika bitişi; izleme araçları için `/healthz`.
+- **Aylık rapor:** müşteriye verilecek, yazdırılabilir saklama ve bütünlük raporu. Arama sonuçları CSV olarak indirilebilir.
+- **Kullanıcılar, Hesabım (iki adımlı giriş), Ayarlar, Denetim kaydı.**
 
 ## Sıkıştırma
 

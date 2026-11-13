@@ -62,8 +62,13 @@ func (l *LastSeen) Mark(tenant, device string, t time.Time) {
 // hours that are not sealed yet.
 func (l *LastSeen) Seed(root string, tenants []string, loc *time.Location, now time.Time) {
 	for _, t := range tenants {
-		for _, day := range []time.Time{now.AddDate(0, 0, -1), now} {
-			dir, err := store.SafeJoin(root, t, day.In(loc).Format(store.DayLayout))
+		// The two latest days that have data, however old they are.
+		days, _ := store.ListDays(root, t)
+		if len(days) > 2 {
+			days = days[len(days)-2:]
+		}
+		for _, day := range days {
+			dir, err := store.SafeJoin(root, t, day)
 			if err != nil {
 				continue
 			}
@@ -119,7 +124,7 @@ func (l *LastSeen) seen(tenant, device string, t time.Time) {
 }
 
 func countLines(p string) int64 {
-	f, err := os.Open(p) // #nosec G304 -- under data_dir, names from Glob
+	f, err := os.Open(p) // #nosec G304 G703 -- under data_dir, names from Glob
 	if err != nil {
 		return 0
 	}
@@ -210,7 +215,7 @@ func (s *Server) daySummary(tenant, day string) daySum {
 	if !d.Sealed {
 		raws, _ := filepath.Glob(filepath.Join(dir, "*", "*"+store.RawExt))
 		for _, p := range raws {
-			if st, err := os.Stat(p); err == nil {
+			if st, err := os.Stat(p); err == nil { // #nosec G703 -- names from Glob under a validated day dir
 				d.Open += st.Size()
 				d.Raw += st.Size()
 			}

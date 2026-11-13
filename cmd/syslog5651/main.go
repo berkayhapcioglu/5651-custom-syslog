@@ -32,6 +32,7 @@ import (
 	"github.com/berkayhapcioglu/5651-custom-syslog/internal/colz"
 	"github.com/berkayhapcioglu/5651-custom-syslog/internal/config"
 	"github.com/berkayhapcioglu/5651-custom-syslog/internal/ingest"
+	"github.com/berkayhapcioglu/5651-custom-syslog/internal/notify"
 	"github.com/berkayhapcioglu/5651-custom-syslog/internal/store"
 	"github.com/berkayhapcioglu/5651-custom-syslog/internal/tsa"
 	"github.com/berkayhapcioglu/5651-custom-syslog/internal/web"
@@ -234,6 +235,7 @@ func cmdRun(args []string) error {
 		ws.Roots = rp
 		ws.Unknown = srv.Unknown
 		ws.Version = version
+		ws.Mailer = &notify.Mailer{Cfg: cfg.Alerts}
 		ws.Stats = func() map[string]int64 {
 			return map[string]int64{
 				"Alınan kayıt":               w.Stats.Records.Load(),
@@ -380,6 +382,7 @@ func cmdUserAdd(args []string) error {
 	name := fs.String("name", "", "username")
 	role := fs.String("role", web.RoleTenant, "admin or tenant")
 	tenants := fs.String("tenants", "", "comma separated tenant ids (role tenant)")
+	reset2fa := fs.Bool("reset-2fa", false, "turn off two-step login of an existing user (lost phone)")
 	fs.Parse(args)
 	if *path == "" {
 		cfg, err := config.Load(*cfgPath)
@@ -427,7 +430,11 @@ func cmdUserAdd(args []string) error {
 	replaced := false
 	for i := range f.Users {
 		if f.Users[i].Username == *name {
-			f.Users[i] = web.User{Username: *name, PasswordHash: hash, Role: *role, Tenants: tl}
+			totp := f.Users[i].TOTPSecret
+			if *reset2fa {
+				totp = ""
+			}
+			f.Users[i] = web.User{Username: *name, PasswordHash: hash, Role: *role, Tenants: tl, TOTPSecret: totp}
 			replaced = true
 		}
 	}

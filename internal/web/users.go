@@ -248,7 +248,13 @@ func (s *Server) userDelete(w http.ResponseWriter, r *http.Request, ss *session)
 
 // accountPage lets every user change their own password.
 func (s *Server) accountPage(w http.ResponseWriter, r *http.Request, ss *session) {
-	s.render(w, "account.html", s.page(r, ss, "account", nil))
+	data := map[string]any{"TOTPOn": ss.user.TOTPSecret != ""}
+	if sec := ss.totpPending; sec != "" && ss.user.TOTPSecret == "" {
+		data["TOTPSetup"] = true
+		data["TOTPSecret"] = groupSecret(sec)
+		data["TOTPQR"] = qrSVG(totpURL(ss.user.Username, sec))
+	}
+	s.render(w, "account.html", s.page(r, ss, "account", data))
 }
 
 func (s *Server) accountPassword(w http.ResponseWriter, r *http.Request, ss *session) {

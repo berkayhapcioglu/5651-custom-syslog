@@ -32,6 +32,29 @@
     <div><button type="submit">Kaydet</button></div>
   </form>
 </section>
+<section class="panel" id="uyarilar">
+  <div class="panel-head"><div><h2>E-posta uyarıları</h2><p>Log kesintisi, mühürlenemeyen gün, dolan disk, yazma hatası, biten lisans ve sertifikalar için e-posta gönderilir. Sorun başlayınca, sürerse günde bir (lisans ve sertifika için haftada bir) ve düzelince haber verilir.</p></div></div>
+  <div class="panel-body">
+    <p>E-posta sunucusu: {{if .MailOn}}<span class="badge ok">Tanımlı</span> <code>{{.MailServer}}</code>{{else}}<span class="badge warn">{{.MailServer}}</span>{{end}}</p>
+    <form method="post" action="/admin/settings/alerts" class="form-grid">
+      {{template "csrf" .CSRF}}
+      <label>Alıcılar <textarea name="emails" rows="3" maxlength="3000" placeholder="noc@firma.com.tr">{{.AlertEmails}}</textarea><span class="hint">Her satıra bir adres, en fazla 10.</span></label>
+      <label>Log kesintisi (saat) <input name="silent_hours" type="number" min="1" max="72" required value="{{.SilentHours}}"><span class="hint">Bir müşteriden bu kadar süre log gelmezse uyarılır.</span></label>
+      <div class="actions"><button type="submit">Kaydet</button></div>
+    </form>
+    <form method="post" action="/admin/settings/alerts/test" class="actions">{{template "csrf" .CSRF}}<button class="secondary" type="submit"{{if not .MailOn}} disabled{{end}}>Deneme e-postası gönder</button></form>
+  </div>
+  <div class="panel-head"><div><h2>Şu anki sorunlar</h2></div></div>
+  {{if .Alerts}}<div class="table-wrap"><table class="data">
+    <thead><tr><th>Durum</th><th>Sorun</th><th>Başlangıç</th><th>Son e-posta</th></tr></thead>
+    <tbody>{{range .Alerts}}<tr><td><span class="badge {{.Level}}">{{if eq .Level "err"}}Hata{{else}}Uyarı{{end}}</span></td><td>{{.Title}}</td><td class="nowrap">{{localtime .Since}}</td><td class="nowrap">{{if .LastSent.IsZero}}-{{else}}{{localtime .LastSent}}{{end}}</td></tr>{{end}}</tbody>
+  </table></div>{{else}}<div class="panel-body"><p class="muted">Sorun yok.</p></div>{{end}}
+  {{if .AlertHistory}}<div class="panel-head"><div><h2>Son bildirimler</h2></div></div>
+  <div class="table-wrap"><table class="data">
+    <thead><tr><th>Zaman</th><th>Tür</th><th>Konu</th><th>E-posta</th></tr></thead>
+    <tbody>{{range .AlertHistory}}<tr><td class="nowrap">{{localtime .Time}}</td><td>{{.Kind}}</td><td>{{.Title}}</td><td>{{.Result}}</td></tr>{{end}}</tbody>
+  </table></div>{{end}}
+</section>
 <section class="panel">
   <div class="panel-head"><div><h2>Sunucu yapılandırması</h2><p>Portlar, sertifika yolları ve zaman damgası ayarları güvenlik için sadece <code>/etc/syslog5651/config.yaml</code> içinden değiştirilir; panel ele geçirilse bile sunucuda komut çalıştırılamaz.</p></div></div>
   <table class="kv">{{range .Config}}<tr><th>{{index . 0}}</th><td><code>{{index . 1}}</code></td></tr>{{end}}</table>

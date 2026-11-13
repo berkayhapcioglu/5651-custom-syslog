@@ -3,7 +3,7 @@
 <ol class="crumbs"><li><a href="/t">Müşteriler</a></li><li aria-current="page">{{.T.Name}}</li></ol>
 <div class="page-head">
   <div><h1>{{.T.Name}}</h1><p class="sub">{{.T.ID}} · saklama {{.T.RetentionDays}} gün · lisans {{.License.Text}}</p></div>
-  <div class="actions">{{if .IsAdmin}}<a class="btn secondary" href="/admin/sources#t-{{.T.ID}}">Kaynaklar ve ayarlar</a>{{end}}<a class="btn" href="/t/{{.T.ID}}/search">Bu müşteride ara</a></div>
+  <div class="actions">{{if .IsAdmin}}<a class="btn secondary" href="/admin/sources#t-{{.T.ID}}">Kaynaklar ve ayarlar</a>{{end}}<a class="btn secondary" href="/t/{{.T.ID}}/report">Aylık rapor</a><a class="btn" href="/t/{{.T.ID}}/search">Bu müşteride ara</a></div>
 </div>
 <div class="stats">
   <div class="stat"><div class="label">Kapladığı yer</div><div class="value">{{bytes .Usage.Disk}}</div><div class="foot">ham {{bytes .Usage.Raw}} · {{ratio .Usage.Raw .Usage.Disk}}</div></div>

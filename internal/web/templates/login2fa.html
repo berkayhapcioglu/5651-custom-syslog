@@ -1,0 +1,18 @@
+{{template "head" "Doğrulama kodu"}}
+<main class="auth"><div class="box">
+  <div class="brand"><span class="logo">5651</span>5651 Log</div>
+  <div class="panel"><div class="panel-body">
+    <h1>Doğrulama kodu</h1>
+    <p class="sub">Telefonunuzdaki doğrulama uygulamasında görünen 6 haneli kodu girin.</p>
+    {{if .Error}}<div class="alert err" role="alert"><span>!</span><div><b>Kod doğru değil.</b><p>Kod 30 saniyede bir değişir. Birkaç hatalı denemeden sonra yeniden şifre istenir.</p></div></div>{{end}}
+    <form method="post" action="/login/2fa" class="form-stack">
+      <input type="hidden" name="csrf" value="{{.CSRF}}">
+      <label>Kod <input name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9 ]{6,7}" maxlength="7" required autofocus></label>
+      <button type="submit">Doğrula</button>
+    </form>
+    <p class="help"><a href="/login">Başka bir kullanıcıyla giriş</a> · Telefonunuzu kaybettiyseniz yöneticiye başvurun.</p>
+  </div></div>
+  <p class="note">Bağlantı TLS ile şifrelidir · {{.Version}}</p>
+</div></main>
+</body>
+</html>
