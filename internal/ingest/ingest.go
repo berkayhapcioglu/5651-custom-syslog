@@ -29,12 +29,14 @@ type Resolver func(netip.Addr) (string, bool)
 
 // Server runs the listeners.
 type Server struct {
-	Resolve     Resolver
-	Out         chan<- store.Record
-	Log         *slog.Logger
-	MaxMsg      int
-	MaxConns    int
-	IdleTimeout time.Duration
+	Resolve  Resolver
+	Out      chan<- store.Record
+	Log      *slog.Logger
+	MaxMsg   int
+	MaxConns int
+	// MaxPerSource caps the connections of one source address (0: no cap).
+	MaxPerSource int
+	IdleTimeout  time.Duration
 
 	Dropped  atomic.Int64 // unknown sources
 	TooLong  atomic.Int64 // truncated messages
@@ -45,6 +47,34 @@ type Server struct {
 
 	conns chan struct{}
 	wg    sync.WaitGroup
+
+	perMu  sync.Mutex
+	perSrc map[netip.Addr]int
+}
+
+// HandshakeTimeout bounds the TLS handshake of a new connection.
+const HandshakeTimeout = 30 * time.Second
+
+// takeSource counts a connection of src; false means it is over its cap.
+func (s *Server) takeSource(src netip.Addr) bool {
+	s.perMu.Lock()
+	defer s.perMu.Unlock()
+	if s.perSrc == nil {
+		s.perSrc = map[netip.Addr]int{}
+	}
+	if s.MaxPerSource > 0 && s.perSrc[src] >= s.MaxPerSource {
+		return false
+	}
+	s.perSrc[src]++
+	return true
+}
+
+func (s *Server) releaseSource(src netip.Addr) {
+	s.perMu.Lock()
+	defer s.perMu.Unlock()
+	if s.perSrc[src]--; s.perSrc[src] <= 0 {
+		delete(s.perSrc, src)
+	}
 }
 
 func (s *Server) init() {
@@ -177,9 +207,16 @@ func (s *Server) serve(ctx context.Context, ln net.Listener) error {
 			c.Close()
 			continue
 		}
+		src := ap.Addr().Unmap()
+		if !s.takeSource(src) {
+			s.Rejected.Add(1)
+			c.Close()
+			continue
+		}
 		select {
 		case s.conns <- struct{}{}:
 		default:
+			s.releaseSource(src)
 			s.Rejected.Add(1)
 			c.Close()
 			continue
@@ -188,7 +225,17 @@ func (s *Server) serve(ctx context.Context, ln net.Listener) error {
 		go func() {
 			defer s.wg.Done()
 			defer func() { <-s.conns }()
+			defer s.releaseSource(src)
 			defer c.Close()
+			if tc, ok := c.(*tls.Conn); ok {
+				hctx, cancel := context.WithTimeout(ctx, HandshakeTimeout)
+				err := tc.HandshakeContext(hctx)
+				cancel()
+				if err != nil {
+					s.Log.Debug("tls handshake", "remote", ap.String(), "err", err)
+					return
+				}
+			}
 			if err := s.handle(ctx, c, ap.Addr()); err != nil && !errors.Is(err, io.EOF) && ctx.Err() == nil {
 				s.Log.Debug("connection closed", "remote", ap.String(), "err", err)
 			}

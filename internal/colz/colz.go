@@ -84,7 +84,7 @@ func Decode(data []byte, codecs map[byte]Codec) ([]byte, error) {
 func DecodeTo(w io.Writer, data []byte, codecs map[byte]Codec) error {
 	r := bytes.NewReader(data)
 	for first := true; first || r.Len() > 0; first = false {
-		b, err := decodeOne(r, codecs)
+		b, err := decodeOne(r, int64(r.Len()), codecs)
 		if err != nil {
 			return err
 		}
@@ -95,7 +95,34 @@ func DecodeTo(w io.Writer, data []byte, codecs map[byte]Codec) error {
 	return nil
 }
 
-func decodeOne(r *bytes.Reader, codecs map[byte]Codec) ([]byte, error) {
+// DecodeReader is DecodeTo for a stream: it decodes one container (one chunk
+// of at most ChunkSize raw bytes) at a time, so memory stays bounded however
+// large the sealed file is.
+func DecodeReader(w io.Writer, r io.Reader, codecs map[byte]Codec) error {
+	br := bufio.NewReaderSize(r, 1<<20)
+	for first := true; ; first = false {
+		if !first {
+			if _, err := br.Peek(1); err == io.EOF {
+				return nil
+			}
+		}
+		b, err := decodeOne(br, maxStream+1<<20, codecs)
+		if err != nil {
+			return err
+		}
+		if _, err := w.Write(b); err != nil {
+			return err
+		}
+	}
+}
+
+type byteReader interface {
+	io.Reader
+	io.ByteReader
+}
+
+// decodeOne reads one container; maxComp bounds a compressed stream.
+func decodeOne(r byteReader, maxComp int64, codecs map[byte]Codec) ([]byte, error) {
 	head := make([]byte, len(magic))
 	if _, err := io.ReadFull(r, head); err != nil || string(head) != magic {
 		return nil, ErrFormat
@@ -120,7 +147,7 @@ func decodeOne(r *bytes.Reader, codecs map[byte]Codec) ([]byte, error) {
 	for i := uint64(0); i < n; i++ {
 		rawLen, err1 := binary.ReadUvarint(r)
 		compLen, err2 := binary.ReadUvarint(r)
-		if err1 != nil || err2 != nil || compLen > uint64(r.Len()) || rawLen > maxStream { // #nosec G115 -- lengths and counts are non-negative and bounded
+		if err1 != nil || err2 != nil || compLen > uint64(maxComp) || rawLen > maxStream { // #nosec G115 -- lengths and counts are non-negative and bounded
 			return nil, ErrFormat
 		}
 		comp := make([]byte, compLen)

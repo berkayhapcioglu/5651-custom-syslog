@@ -5,7 +5,9 @@ import (
 	"bytes"
 	"context"
 	"encoding/csv"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -166,6 +168,11 @@ func (s *Server) doSearch(w http.ResponseWriter, r *http.Request, ss *session, c
 	req.labels = map[string]string{}
 	s.audit(r, ss.user.Username, "search", "tenant", t.ID, "from", req.From, "to", req.To, "hours", fmt.Sprintf("%02d-%02d", req.HFrom, req.HTo),
 		"device", req.Device, "mode", map[bool]string{true: "text", false: "word"}[req.Text], "query", req.Q, "csv", csvOut)
+	release, ok := s.acquireHeavy(w, r, ss.user.Username)
+	if !ok {
+		return
+	}
+	defer release()
 	ctx, cancel := context.WithTimeout(r.Context(), searchTimeout)
 	defer cancel()
 	start := time.Now()
@@ -250,7 +257,7 @@ func (s *Server) runSearch(ctx context.Context, req *searchReq, fromT, toT time.
 				req.timedOut = true
 				return nil
 			}
-			if done := s.searchHour(dir, f, req); done {
+			if done := s.searchHour(ctx, dir, f, req); done {
 				req.truncated = true
 				return nil
 			}
@@ -297,9 +304,12 @@ func (s *Server) dayFiles(dir string, req *searchReq) []hourFile {
 }
 
 // searchHour scans one hour; it returns true when the hit limit is reached.
-func (s *Server) searchHour(dir string, f hourFile, req *searchReq) bool {
+// The hour is streamed (sealed hours chunk by chunk), so memory does not
+// grow with the size of the hour, and at most the hits still wanted are kept.
+func (s *Server) searchHour(ctx context.Context, dir string, f hourFile, req *searchReq) bool {
 	req.stats.Hours++
-	var raw []byte
+	var src io.Reader
+	var wait func() error
 	if f.entry != nil {
 		ix, ierr := store.ReadIndex(dir, *f.entry)
 		if ierr == nil && len(req.tokens) > 0 {
@@ -310,22 +320,23 @@ func (s *Server) searchHour(dir string, f hourFile, req *searchReq) bool {
 				}
 			}
 		}
-		b, err := store.ReadSealed(dir, *f.entry)
-		if err != nil {
-			req.hits = append(req.hits, hit{Device: f.device, Line: "HATA: " + err.Error()})
-			return false
-		}
-		raw = b
-		if ierr != nil { // build a missing index on the way
-			_, _ = store.WriteIndex(dir, f.device, f.hour, bytes.NewReader(raw))
-			s.sums.forget(dir)
-		}
+		pr, pw := io.Pipe()
+		done := make(chan error, 1)
+		go func() {
+			err := store.StreamSealed(dir, *f.entry, pw)
+			pw.CloseWithError(err)
+			done <- err
+		}()
+		defer pr.Close()
+		src = pr
+		wait = func() error { pr.Close(); return <-done }
 	} else {
-		b, err := readLimited(dir, f.path, 2<<30)
+		fh, err := os.OpenInRoot(dir, f.path)
 		if err != nil {
 			return false
 		}
-		raw = b
+		defer fh.Close()
+		src = fh
 	}
 	req.stats.Read++
 	label, ok := req.labels[f.device]
@@ -333,15 +344,27 @@ func (s *Server) searchHour(dir string, f hourFile, req *searchReq) bool {
 		label = labelFor(req.Tenant, f.device)
 		req.labels[f.device] = label
 	}
-	var found []hit
-	sc := bufio.NewScanner(bytes.NewReader(raw))
+	want := req.limit - len(req.hits)
+	if want <= 0 {
+		return true
+	}
+	// Ascending: the first `want` hits. Descending: the last `want` hits of
+	// the hour, kept in a ring.
+	ring := make([]hit, 0, min(want, 1024))
+	start, total := 0, 0
+	sc := bufio.NewScanner(src)
 	sc.Buffer(make([]byte, 64*1024), 4<<20)
 	var low []byte
 	var wq *store.WordQuery
 	if !req.Text {
 		wq = store.NewWordQuery(req.qLower)
 	}
-	for sc.Scan() {
+	full := false
+	for n := 0; sc.Scan(); n++ {
+		if n&0xffff == 0 && ctx.Err() != nil {
+			req.timedOut = true
+			break
+		}
 		line := sc.Bytes()
 		low = append(low[:0], line...)
 		for i, c := range low {
@@ -367,20 +390,35 @@ func (s *Server) searchHour(dir string, f hourFile, req *searchReq) bool {
 			rest = msg
 		}
 		h.Line = string(rest)
-		found = append(found, h)
+		total++
+		if len(ring) < want {
+			ring = append(ring, h)
+		} else if req.Asc {
+			full = true
+			break
+		} else {
+			ring[start] = h
+			start = (start + 1) % want
+		}
 	}
+	scanErr := sc.Err()
+	if wait != nil {
+		if err := wait(); err != nil && !errors.Is(err, io.ErrClosedPipe) {
+			req.hits = append(req.hits, hit{Device: f.device, Line: "HATA: " + err.Error()})
+			return false
+		}
+	}
+	if scanErr != nil {
+		req.hits = append(req.hits, hit{Device: f.device, Line: "HATA: " + scanErr.Error()})
+	}
+	found := append(ring[start:len(ring):len(ring)], ring[:start]...)
 	if !req.Asc {
 		for i, j := 0, len(found)-1; i < j; i, j = i+1, j-1 {
 			found[i], found[j] = found[j], found[i]
 		}
 	}
-	for _, h := range found {
-		req.hits = append(req.hits, h)
-		if len(req.hits) >= maxHits {
-			return true
-		}
-	}
-	return false
+	req.hits = append(req.hits, found...)
+	return full || total > want || len(req.hits) >= req.limit
 }
 
 func (s *Server) writeCSV(w http.ResponseWriter, req *searchReq) {

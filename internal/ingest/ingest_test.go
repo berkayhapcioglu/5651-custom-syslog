@@ -136,3 +136,45 @@ func TestUDP(t *testing.T) {
 		t.Fatal("no udp record")
 	}
 }
+
+// One source cannot take more than its share of connections, and a TLS
+// client that never finishes the handshake is cut off.
+func TestPerSourceCap(t *testing.T) {
+	out := make(chan store.Record, 16)
+	s := newServer(out, true)
+	s.MaxConns, s.MaxPerSource = 8, 2
+	ln, _ := net.Listen("tcp", "127.0.0.1:0")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go s.serve(ctx, ln)
+	var conns []net.Conn
+	for i := 0; i < 3; i++ {
+		c, err := net.Dial("tcp", ln.Addr().String())
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer c.Close()
+		conns = append(conns, c)
+	}
+	conns[2].SetReadDeadline(time.Now().Add(2 * time.Second))
+	if _, err := conns[2].Read(make([]byte, 1)); err == nil || isTimeout(err) {
+		t.Fatalf("third connection from one source was not closed: %v", err)
+	}
+	conns[0].Write([]byte("still works\n"))
+	select {
+	case r := <-out:
+		if string(r.Message) != "still works" {
+			t.Fatal(string(r.Message))
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("first connection stopped working")
+	}
+	if s.Rejected.Load() != 1 {
+		t.Fatalf("rejected=%d", s.Rejected.Load())
+	}
+}
+
+func isTimeout(err error) bool {
+	ne, ok := err.(net.Error)
+	return ok && ne.Timeout()
+}

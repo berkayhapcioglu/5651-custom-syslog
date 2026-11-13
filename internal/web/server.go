@@ -29,7 +29,10 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/berkayhapcioglu/5651-custom-syslog/internal/config"
@@ -62,7 +65,12 @@ type Server struct {
 	cpu    cpuSampler
 	steps  usedSteps
 	pend   pendingLogins
-	alerts alerter
+	// heavy is a semaphore for work that reads whole hours (search, raw
+	// download, reindex), so many requests at once cannot exhaust CPU/RAM.
+	heavy   chan struct{}
+	heavyMu sync.Mutex
+	heavyBy map[string]bool
+	alerts  alerter
 
 	// Mailer sends alert e-mails; nil or unconfigured means none are sent.
 	Mailer *notify.Mailer
@@ -83,6 +91,7 @@ func New(cfg *config.Config, log *slog.Logger, seen *LastSeen) (*Server, error) 
 		limIP:    newLimiter(),
 		limUsr:   newLimiter(),
 		sums:     newSumCache(),
+		heavy:    make(chan struct{}, max(2, runtime.NumCPU()/2)),
 	}
 	t, err := template.New("").Funcs(s.funcs()).ParseFS(assets, "templates/*.html")
 	if err != nil {
@@ -215,6 +224,9 @@ func (s *Server) secure(next http.Handler) http.Handler {
 		}
 		defer func() {
 			if v := recover(); v != nil {
+				if v == http.ErrAbortHandler { //nolint:errorlint // sentinel compared as the panic value
+					panic(v) // aborts the response on purpose (see rawHour)
+				}
 				s.Log.Error("panic in handler", "err", v, "path", r.URL.Path)
 				http.Error(w, "internal error", http.StatusInternalServerError)
 			}
@@ -252,6 +264,42 @@ func (s *Server) auth(next func(http.ResponseWriter, *http.Request, *session)) h
 		}
 		next(w, r, ss)
 	}
+}
+
+// acquireHeavy waits for a heavy-work slot; it answers 503 itself and
+// returns false when none frees up in time. One user runs one heavy job at
+// a time, so a single user cannot hold every slot.
+func (s *Server) acquireHeavy(w http.ResponseWriter, r *http.Request, user string) (func(), bool) {
+	s.heavyMu.Lock()
+	if s.heavyBy == nil {
+		s.heavyBy = map[string]bool{}
+	}
+	busy := s.heavyBy[user]
+	if !busy {
+		s.heavyBy[user] = true
+	}
+	s.heavyMu.Unlock()
+	if busy {
+		http.Error(w, "Önceki aramanız ya da indirmeniz hâlâ sürüyor; bitmesini bekleyin.", http.StatusTooManyRequests)
+		return nil, false
+	}
+	done := func() {
+		s.heavyMu.Lock()
+		delete(s.heavyBy, user)
+		s.heavyMu.Unlock()
+	}
+	t := time.NewTimer(20 * time.Second)
+	defer t.Stop()
+	select {
+	case s.heavy <- struct{}{}:
+		return func() { <-s.heavy; done() }, true
+	case <-t.C:
+	case <-r.Context().Done():
+	}
+	done()
+	w.Header().Set("Retry-After", "10")
+	http.Error(w, "Sunucu şu an başka aramaları işliyor; birkaç saniye sonra tekrar deneyin.", http.StatusServiceUnavailable)
+	return nil, false
 }
 
 func clientIP(r *http.Request) string {
@@ -505,15 +553,18 @@ func (s *Server) reindexDay(w http.ResponseWriter, r *http.Request, ss *session)
 	if !ok {
 		return
 	}
+	release, ok := s.acquireHeavy(w, r, ss.user.Username)
+	if !ok {
+		return
+	}
+	defer release()
 	hours, err := store.ReadHours(dir)
 	n := 0
 	for _, h := range hours {
 		if err != nil {
 			break
 		}
-		var raw []byte
-		if raw, err = store.ReadSealed(dir, h); err == nil {
-			_, err = store.WriteIndex(dir, h.Device, h.Hour, bytes.NewReader(raw))
+		if err = s.reindexHour(dir, h); err == nil {
 			n++
 		}
 	}
@@ -592,29 +643,77 @@ func (s *Server) rawHour(w http.ResponseWriter, r *http.Request, ss *session) {
 	}
 	for _, h := range hours {
 		if h.Device == device && h.Hour == hour {
-			raw, err := store.ReadSealed(dir, h)
+			release, ok := s.acquireHeavy(w, r, ss.user.Username)
+			if !ok {
+				return
+			}
+			defer release()
+			// The file is streamed: nothing is sent until its SHA-256 matched
+			// the manifest, and if the decoded content does not match at the
+			// end the connection is cut, so a bad file is never delivered whole.
+			aw := &lazyAttachment{w: w, name: fmt.Sprintf("%s_%s_%s_%s.log", t.ID, day, device, hour), size: h.RawBytes}
+			err := store.StreamSealed(dir, h, aw)
 			if err != nil {
 				s.audit(r, ss.user.Username, "download_raw_failed", "tenant", t.ID, "day", day, "file", h.File, "err", err.Error())
+				if aw.started {
+					panic(http.ErrAbortHandler)
+				}
 				http.Error(w, "dosya doğrulanamadı: "+err.Error(), http.StatusInternalServerError)
 				return
 			}
 			s.audit(r, ss.user.Username, "download_raw", "tenant", t.ID, "day", day, "file", h.File)
-			w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-			w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s_%s_%s_%s.log"`, t.ID, day, device, hour))
-			w.Write(raw) // #nosec G705 -- served as an attachment with text/plain and nosniff
 			return
 		}
 	}
 	http.NotFound(w, r)
 }
 
-func readLimited(dir, rel string, n int64) ([]byte, error) {
-	f, err := os.OpenInRoot(dir, rel)
-	if err != nil {
-		return nil, err
+// reindexHour rebuilds one hour's index, streaming the sealed file. The
+// index is written only if the whole file decoded and matched its hashes.
+func (s *Server) reindexHour(dir string, h store.HourEntry) error {
+	pr, pw := io.Pipe()
+	type res struct {
+		b   []byte
+		err error
 	}
-	defer f.Close()
-	return io.ReadAll(io.LimitReader(f, n))
+	done := make(chan res, 1)
+	go func() {
+		b, err := store.BuildIndex(pr)
+		pr.CloseWithError(err)
+		done <- res{b, err}
+	}()
+	err := store.StreamSealed(dir, h, pw)
+	pw.CloseWithError(err)
+	out := <-done
+	if err != nil {
+		return err
+	}
+	if out.err != nil {
+		return out.err
+	}
+	return store.SaveIndex(dir, h.Device, h.Hour, out.b)
+}
+
+// lazyAttachment sets the download headers on the first write, so an error
+// before any data can still be answered with an error page.
+type lazyAttachment struct {
+	w       http.ResponseWriter
+	name    string
+	size    int64
+	started bool
+}
+
+func (a *lazyAttachment) Write(p []byte) (int, error) {
+	if !a.started {
+		a.started = true
+		h := a.w.Header()
+		h.Set("Content-Type", "text/plain; charset=utf-8")
+		h.Set("Content-Disposition", `attachment; filename="`+a.name+`"`)
+		if a.size > 0 {
+			h.Set("Content-Length", strconv.FormatInt(a.size, 10))
+		}
+	}
+	return a.w.Write(p) // #nosec G705 -- served as an attachment with text/plain and nosniff
 }
 
 func humanBytes(n int64) string {

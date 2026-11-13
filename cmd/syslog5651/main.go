@@ -192,7 +192,7 @@ func cmdRun(args []string) error {
 
 	srv := &ingest.Server{
 		Resolve: cfg.Resolve, Out: w.In, Log: log, MaxMsg: cfg.MaxMessageBytes,
-		MaxConns: cfg.Listen.MaxTCPConns, IdleTimeout: cfg.Listen.TCPIdleTimeout.Duration,
+		MaxConns: cfg.Listen.MaxTCPConns, MaxPerSource: cfg.Listen.MaxTCPConnsPerSource, IdleTimeout: cfg.Listen.TCPIdleTimeout.Duration,
 		Unknown: ingest.NewUnknown(1000),
 	}
 	errc := make(chan error, 4)

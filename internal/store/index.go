@@ -215,6 +215,11 @@ func WriteIndex(dayDir, device, hour string, raw io.Reader) (int, error) {
 	return len(b), writeFileSync(IndexPath(dayDir, device, hour), b, 0o400)
 }
 
+// SaveIndex stores an index built with BuildIndex.
+func SaveIndex(dayDir, device, hour string, b []byte) error {
+	return writeFileSync(IndexPath(dayDir, device, hour), b, 0o400)
+}
+
 // ReadIndex loads the index of one hour; an error means "no usable index".
 func ReadIndex(dayDir string, e HourEntry) (*Index, error) {
 	if !ValidDevice(e.Device) || !ValidHour(e.Hour) {

@@ -43,12 +43,27 @@ Daha gerçekçi tekrarlı demo verisinde sütunlu zstd ile saatlik dosyalar 25x 
 COLZ_BENCH=/yol/ham.log go test ./internal/colz/ -run TestBenchFile -v
 ```
 
+## Kapasite (ölçülen)
+
+4 çekirdekli test sunucusunda, yük üreteci aynı makinede çalışırken (FortiGate benzeri ~700 bayt mesajlar):
+
+| Alım | Hız | Kayıp |
+| --- | --- | --- |
+| UDP | 92.000 mesaj/sn | 0 |
+| TCP (8 bağlantı) | 90.000 mesaj/sn | 0 |
+| TLS (8 bağlantı) | 92.000 mesaj/sn | 0 |
+| UDP | 146.000 mesaj/sn | %2,6 (tek çekirdek doldu; UDP'nin doğası gereği çekirdek fazlasını düşürür) |
+
+Mühürleme: 5,8 GB'lık tek bir saat (8,3 milyon satır) xz ile 289 MB'a indi (20,2x), tek çekirdekte 19 dakika sürdü. Bir sıkıştırma işçisi xz ile saniyede ~5,6 MB (~8.000 mesaj/sn sürekli), zstd ile ~25 MB işler; sürekli yük bunu aşacaksa `compression.workers` artırılır ya da `codec: zstd` seçilir (aynı veride oran ~%13 düşük).
+
 ## Güvenlik
 
 - Servis root olmayan kullanıcıyla, kısıtlamalı systemd birimiyle çalışır (sadece `CAP_NET_BIND_SERVICE`; salt okunur sistem; seccomp filtresi).
 - Veri klasörü `0700`, mühürlü dosyalar `0400`; web ve doğrulama tarafındaki dosya okumaları ile saklama silmeleri `os.Root` ile veri klasörüne hapsedilir.
 - Web: sadece HTTPS (TLS 1.2+), HSTS, sıkı CSP (hiç JavaScript yok), `__Host-` çerezler (Secure, HttpOnly, SameSite=Strict), her POST'ta CSRF token, argon2id şifreler, IP ve kullanıcı bazında artan kilitleme, müşteri izolasyonu (başka müşterinin sayfası 404 döner), tüm giriş/arama/indirme işlemleri denetim kaydına yazılır.
 - Sıkıştırılmış dosyaları okuyan kod fuzz testinden geçer; boyut sınırları decompression bomb'a karşı korur.
+- Syslog: tanımsız kaynaktan gelen bağlantı hiçbir şey okunmadan kapatılır; tek bir kaynak IP en fazla `max_tcp_conns_per_source` (varsayılan 32) bağlantı açabilir; TLS el sıkışması 30 saniyede bitmezse bağlantı kesilir; mesajlar `max_message_bytes` ile kesilir.
+- Arama, ham indirme ve rapor gibi ağır işler aynı anda sınırlı sayıda çalışır (sırası gelmeyene 503); mühürlü saatler parça parça açılır, bellek kullanımı saatin boyutundan bağımsızdır. Ham indirme önce dosyanın SHA-256'sını doğrular, içerik özeti sonda tutmazsa bağlantı kesilir.
 - CI'da `go vet`, testler (race dahil), `gosec` ve `govulncheck` çalışır.
 
 ## Geliştirme

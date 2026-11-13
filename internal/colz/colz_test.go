@@ -119,3 +119,27 @@ func FuzzDecode(f *testing.F) {
 		Decode(data, codecs)
 	})
 }
+
+func TestDecodeReaderMatchesDecode(t *testing.T) {
+	old := ChunkSize
+	ChunkSize = 4 << 10
+	defer func() { ChunkSize = old }()
+	var raw bytes.Buffer
+	for i := 0; i < 3000; i++ {
+		fmt.Fprintf(&raw, "2026-11-09T07:00:%02d.000000000Z\t10.0.0.1\tsrcip=10.0.0.%d dstport=%d\n", i%60, i%250, 1000+i)
+	}
+	var enc bytes.Buffer
+	if err := EncodeStream(&enc, bytes.NewReader(raw.Bytes()), Zstd{}, false); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if err := DecodeReader(&out, bytes.NewReader(enc.Bytes()), Codecs()); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(out.Bytes(), raw.Bytes()) {
+		t.Fatal("DecodeReader output differs")
+	}
+	if err := DecodeReader(io.Discard, bytes.NewReader(enc.Bytes()[:enc.Len()-3]), Codecs()); err == nil {
+		t.Fatal("truncated input accepted")
+	}
+}

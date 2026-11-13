@@ -16,6 +16,8 @@ listen:
   # Doldurulursa firewall'lar bu CA'nın imzaladığı istemci sertifikası sunmak zorunda.
   # tls_client_ca: /etc/syslog5651/tls/clients-ca.crt
   max_tcp_conns: 1024
+  # Tek bir kaynak IP'nin açabileceği en fazla bağlantı (bir cihaz diğerlerinin payını tüketemez).
+  max_tcp_conns_per_source: 32
   tcp_idle_timeout: 15m
 
 compression:

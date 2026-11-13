@@ -60,6 +60,9 @@ type Listen struct {
 
 	// MaxTCPConns caps concurrent TCP+TLS connections.
 	MaxTCPConns int `yaml:"max_tcp_conns"`
+	// MaxTCPConnsPerSource caps the connections of one source address, so a
+	// single device cannot use up the slots of all others.
+	MaxTCPConnsPerSource int `yaml:"max_tcp_conns_per_source"`
 	// TCPIdleTimeout closes TCP connections that send nothing for this long.
 	TCPIdleTimeout Duration `yaml:"tcp_idle_timeout"`
 }
@@ -220,6 +223,9 @@ func (c *Config) defaults() {
 	}
 	if c.Listen.MaxTCPConns == 0 {
 		c.Listen.MaxTCPConns = 1024
+	}
+	if c.Listen.MaxTCPConnsPerSource == 0 {
+		c.Listen.MaxTCPConnsPerSource = 32
 	}
 	if c.Listen.TCPIdleTimeout.Duration == 0 {
 		c.Listen.TCPIdleTimeout.Duration = 15 * time.Minute

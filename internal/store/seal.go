@@ -245,31 +245,69 @@ func syncDir(dir string) error {
 }
 
 // ReadSealed decodes a sealed file and checks it against its manifest entry.
+// It holds the whole hour in memory; prefer StreamSealed for large hours.
 func ReadSealed(dayDir string, e HourEntry) ([]byte, error) {
+	var out bytes.Buffer
+	if err := StreamSealed(dayDir, e, &out); err != nil {
+		return nil, err
+	}
+	return out.Bytes(), nil
+}
+
+// ErrSealedMismatch reports a sealed file that differs from its manifest entry.
+var ErrSealedMismatch = errors.New("sealed file hash mismatch")
+
+// StreamSealed decodes a sealed file into w chunk by chunk. The file's own
+// SHA-256 is checked before anything is written; the decoded content's
+// SHA-256 can only be checked at the end, so on ErrSealedMismatch the caller
+// must discard what w received.
+func StreamSealed(dayDir string, e HourEntry, w io.Writer) error {
 	if !ValidDevice(e.Device) || !ValidHour(e.Hour) {
-		return nil, fmt.Errorf("invalid manifest entry %q/%q", e.Device, e.Hour)
+		return fmt.Errorf("invalid manifest entry %q/%q", e.Device, e.Hour)
 	}
 	// OpenInRoot refuses symlinks or ".." that would leave the day directory.
 	f, err := os.OpenInRoot(dayDir, filepath.Join(e.Device, e.Hour+SealedExt))
 	if err != nil {
-		return nil, err
+		return err
 	}
 	defer f.Close()
-	b, err := io.ReadAll(io.LimitReader(f, e.FileBytes+1))
+	fh := sha256.New()
+	n, err := io.Copy(fh, io.LimitReader(f, e.FileBytes+1))
 	if err != nil {
-		return nil, err
+		return err
 	}
-	if int64(len(b)) != e.FileBytes || hexSum(b) != e.FileSHA256 {
-		return nil, fmt.Errorf("%s: sealed file hash mismatch", e.File)
+	if n != e.FileBytes || hex.EncodeToString(fh.Sum(nil)) != e.FileSHA256 {
+		return fmt.Errorf("%s: %w", e.File, ErrSealedMismatch)
 	}
-	raw, err := colz.Decode(b, colz.Codecs())
-	if err != nil {
-		return nil, err
+	if _, err := f.Seek(0, io.SeekStart); err != nil {
+		return err
 	}
-	if hexSum(raw) != e.RawSHA256 {
-		return nil, fmt.Errorf("%s: decoded content hash mismatch", e.File)
+	// Hash the file again while decoding, so a change between the two
+	// reads is caught too.
+	fh.Reset()
+	rh := sha256.New()
+	cw := &countWriter{w: io.MultiWriter(w, rh)}
+	if err := colz.DecodeReader(cw, io.TeeReader(io.LimitReader(f, e.FileBytes), fh), colz.Codecs()); err != nil {
+		return err
 	}
-	return raw, nil
+	if hex.EncodeToString(fh.Sum(nil)) != e.FileSHA256 {
+		return fmt.Errorf("%s: %w", e.File, ErrSealedMismatch)
+	}
+	if hex.EncodeToString(rh.Sum(nil)) != e.RawSHA256 || (e.RawBytes > 0 && cw.n != e.RawBytes) {
+		return fmt.Errorf("%s: decoded content: %w", e.File, ErrSealedMismatch)
+	}
+	return nil
+}
+
+type countWriter struct {
+	w io.Writer
+	n int64
+}
+
+func (c *countWriter) Write(p []byte) (int, error) {
+	n, err := c.w.Write(p)
+	c.n += int64(n)
+	return n, err
 }
 
 func hexSum(b []byte) string {

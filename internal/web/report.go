@@ -26,6 +26,12 @@ func (s *Server) reportPage(w http.ResponseWriter, r *http.Request, ss *session)
 	if !ok {
 		return
 	}
+	// Open days are counted from their raw files, which can be large.
+	release, ok := s.acquireHeavy(w, r, ss.user.Username)
+	if !ok {
+		return
+	}
+	defer release()
 	loc := s.Cfg.Location()
 	now := time.Now().In(loc)
 	month := r.URL.Query().Get("month")

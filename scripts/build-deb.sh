@@ -9,11 +9,12 @@ case "$VERSION" in [0-9]*) ;; *) VERSION="0.1.0~${VERSION}" ;; esac
 ARCH="${GOARCH:-amd64}"
 PKG="dist/pkg"
 rm -rf "$PKG" && mkdir -p "$PKG/DEBIAN" "$PKG/usr/bin" "$PKG/lib/systemd/system" \
-  "$PKG/usr/share/doc/syslog5651" "$PKG/etc/syslog5651"
+  "$PKG/usr/share/doc/syslog5651" "$PKG/etc/syslog5651" "$PKG/usr/lib/sysctl.d"
 
 CGO_ENABLED=0 GOOS=linux GOARCH="$ARCH" go build -trimpath -buildvcs=false \
   -ldflags "-s -w -X main.version=$VERSION" -o "$PKG/usr/bin/syslog5651" ./cmd/syslog5651
 
+install -m 0644 deploy/60-syslog5651.conf "$PKG/usr/lib/sysctl.d/60-syslog5651.conf"
 install -m 0644 deploy/syslog5651.service "$PKG/lib/systemd/system/syslog5651.service"
 install -m 0640 deploy/config.example.yaml "$PKG/etc/syslog5651/config.yaml"
 install -m 0644 deploy/config.example.yaml "$PKG/usr/share/doc/syslog5651/config.example.yaml"
@@ -75,6 +76,7 @@ if [ "$1" = "configure" ]; then
   if grep -q "users_file: /etc/syslog5651/users.yaml" /etc/syslog5651/config.yaml; then
     sed -i "s#users_file: /etc/syslog5651/users.yaml#users_file: $U#" /etc/syslog5651/config.yaml
   fi
+  sysctl -q -p /usr/lib/sysctl.d/60-syslog5651.conf >/dev/null 2>&1 || true
   systemctl daemon-reload >/dev/null 2>&1 || true
   systemctl enable syslog5651 >/dev/null 2>&1 || true
   echo ""
