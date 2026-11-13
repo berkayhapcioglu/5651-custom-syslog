@@ -1,0 +1,42 @@
+{{template "head" "Hesabım"}}
+{{template "nav" .}}
+<div class="page-head"><div><h1>Hesabım</h1><p class="sub">{{.User.Username}} · {{rolename .User.Role}}</p></div></div>
+<section class="panel">
+  <div class="panel-head"><div><h2>Şifre değiştir</h2><p>En az 12 karakter. Diğer cihazlardaki oturumlarınız kapanır.</p></div></div>
+  <form method="post" action="/account/password" class="panel-body form-stack">
+    {{template "csrf" .CSRF}}
+    <label>Mevcut şifre <input name="current" type="password" required maxlength="1024" autocomplete="current-password"></label>
+    <label>Yeni şifre <input name="new" type="password" required minlength="12" maxlength="1024" autocomplete="new-password"></label>
+    <label>Yeni şifre (tekrar) <input name="repeat" type="password" required minlength="12" maxlength="1024" autocomplete="new-password"></label>
+    <div><button type="submit">Şifreyi değiştir</button></div>
+  </form>
+</section>
+<section class="panel" id="iki-adim">
+  <div class="panel-head"><div><h2>İki adımlı giriş {{if .TOTPOn}}<span class="badge ok">Açık</span>{{else}}<span class="badge">Kapalı</span>{{end}}</h2>
+    <p>Girişte şifreye ek olarak telefondaki doğrulama uygulamasının (Google Authenticator, Microsoft Authenticator vb.) ürettiği kod istenir. Şifre çalınsa bile hesaba girilemez.</p></div></div>
+  <div class="panel-body">
+  {{if .TOTPOn}}
+    <form method="post" action="/account/2fa/disable" class="form-stack">
+      {{template "csrf" .CSRF}}
+      <p>Kapatmak için şifrenizi ve güncel kodu girin.</p>
+      <label>Şifre <input name="password" type="password" required maxlength="1024" autocomplete="current-password"></label>
+      <label>Kod <input name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="7" required></label>
+      <div><button class="secondary" type="submit">İki adımlı girişi kapat</button></div>
+    </form>
+  {{else if .TOTPSetup}}
+    <ol class="steps">
+      <li>Doğrulama uygulamasında "hesap ekle"ye basıp bu kodu okutun:<div class="qr-box">{{.TOTPQR}}</div>
+        Okutamıyorsanız anahtarı elle girin: <code class="hash">{{.TOTPSecret}}</code></li>
+      <li>Uygulamada görünen 6 haneli kodu yazın:</li>
+    </ol>
+    <form method="post" action="/account/2fa/enable" class="form-stack">
+      {{template "csrf" .CSRF}}
+      <label>Kod <input name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="7" required autofocus></label>
+      <div><button type="submit">Doğrula ve aç</button></div>
+    </form>
+  {{else}}
+    <form method="post" action="/account/2fa/start">{{template "csrf" .CSRF}}<button type="submit">İki adımlı girişi kur</button></form>
+  {{end}}
+  </div>
+</section>
+{{template "foot"}}

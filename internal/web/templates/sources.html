@@ -1,0 +1,86 @@
+{{template "head" "Log kaynakları"}}
+{{template "nav" .}}
+<div class="page-head"><div><h1>Log kaynakları</h1><p class="sub">Müşteriler ve logu kabul edilen firewall adresleri. Değişiklikler servis yeniden başlatılmadan hemen uygulanır ve denetim kaydına yazılır.</p></div></div>
+
+{{if .Unknown}}
+<section class="panel" id="bilinmeyen">
+  <div class="panel-head"><div><h2>Bilinmeyen kaynaklar</h2><p>Bu adreslerden log geldi ama hiçbir müşteriye ait değil; loglar saklanmadı. Tanıyorsanız bir müşteriye ekleyin.</p></div></div>
+  <div class="table-wrap"><table class="data">
+    <thead><tr><th>Adres</th><th>Protokol</th><th class="num">Deneme</th><th>İlk</th><th>Son</th><th>Müşteriye ekle</th></tr></thead>
+    <tbody>{{range .Unknown}}
+      <tr><td><code>{{.Addr}}</code></td><td>{{.Proto}}</td><td class="num">{{thousands .Count}}</td><td class="nowrap">{{localtime .First}}</td><td class="nowrap">{{ago .Last}}</td>
+      <td><form method="post" action="/admin/sources/add" class="actions">{{template "csrf" $.CSRF}}<input type="hidden" name="source" value="{{.Addr}}">
+        <select name="tenant" required aria-label="Müşteri"><option value="">Müşteri seçin</option>{{range $.Rows}}<option value="{{.T.ID}}">{{.T.Name}}</option>{{end}}</select>
+        <input name="label" maxlength="80" placeholder="Cihaz adı (ör. Merkez FortiGate)" aria-label="Cihaz adı">
+        <button class="sm" type="submit">Ekle</button></form></td></tr>
+    {{end}}</tbody>
+  </table></div>
+</section>
+{{end}}
+
+<section class="panel" id="yeni">
+  <div class="panel-head"><div><h2>Yeni müşteri</h2><p>Önce müşteriyi ekleyin, sonra firewall IP'sini ekleyin.</p></div></div>
+  <form method="post" action="/admin/sources/tenant" class="panel-body form-grid">
+    {{template "csrf" .CSRF}}<input type="hidden" name="new" value="1">
+    <label>Müşteri adı <input name="name" required maxlength="120" placeholder="Örnek Lojistik A.Ş."></label>
+    <label>Kısa ad <input name="id" required pattern="[a-z0-9][a-z0-9_\-]{0,62}" maxlength="63" placeholder="ornek-lojistik"><span class="hint">Küçük harf, rakam, - ve _. Klasör adı olur, sonradan değişmez.</span></label>
+    <label>Saklama (gün) <input name="retention_days" type="number" min="365" max="3650" placeholder="{{.DefaultRetention}}"><span class="hint">Boş: varsayılan {{.DefaultRetention}} gün</span></label>
+    <label>Lisans bitişi <input name="license_until" type="date"></label>
+    <div><button type="submit">Müşteri ekle</button></div>
+  </form>
+</section>
+
+{{range .Rows}}{{$t := .T}}
+<section class="panel" id="t-{{.T.ID}}">
+  <div class="panel-head">
+    <div><h2><a href="/t/{{.T.ID}}">{{.T.Name}}</a> <span class="tag">{{.T.ID}}</span>{{if eq .T.Origin "file"}} <span class="tag">config.yaml</span>{{end}}</h2>
+    <p>Saklama {{.T.RetentionDays}} gün · lisans {{if .License.Set}}<span class="{{.License.Class}}">{{.License.Text}}</span> ({{daytr .License.Until}}){{else}}tanımsız{{end}}</p></div>
+  </div>
+  <div class="table-wrap"><table class="data">
+    <thead><tr><th>Adres / ağ</th><th>Cihaz adı</th><th>Ekleyen</th><th><span class="sr-only">İşlem</span></th></tr></thead>
+    <tbody>{{range .T.SourceList}}
+      <tr><td><code>{{.Prefix}}</code></td><td>{{if .Label}}{{.Label}}{{else}}<span class="muted">-</span>{{end}}</td>
+      <td>{{if eq .Origin "file"}}<span class="tag">config.yaml</span>{{else}}{{.AddedBy}}<small>{{stamp .Added}}</small>{{end}}</td>
+      <td class="num">{{if eq .Origin "panel"}}<form method="post" action="/admin/sources/remove" class="inline">{{template "csrf" $.CSRF}}<input type="hidden" name="tenant" value="{{$t.ID}}"><input type="hidden" name="source" value="{{.Prefix}}"><button class="secondary sm" type="submit">Kaldır</button></form>{{end}}</td></tr>
+    {{else}}<tr><td colspan="4"><div class="empty"><b>Henüz kaynak yok</b><p>Bu müşterinin firewall'unun logu gönderdiği dış IP'yi aşağıdan ekleyin.</p></div></td></tr>{{end}}</tbody>
+  </table></div>
+  <div class="panel-body">
+    <form method="post" action="/admin/sources/add" class="form-grid">
+      {{template "csrf" $.CSRF}}<input type="hidden" name="tenant" value="{{.T.ID}}">
+      <label>IP ya da ağ <input name="source" required maxlength="64" placeholder="203.0.113.10 veya 198.51.100.0/28"></label>
+      <label>Cihaz adı <input name="label" maxlength="80" placeholder="Merkez FortiGate"></label>
+      <div><button type="submit">Kaynak ekle</button></div>
+    </form>
+    <details class="edit">
+      <summary>Müşteri ayarlarını düzenle</summary>
+      <form method="post" action="/admin/sources/tenant" class="form-grid">
+        {{template "csrf" $.CSRF}}<input type="hidden" name="id" value="{{.T.ID}}">
+        <label>Müşteri adı <input name="name" required maxlength="120" value="{{.T.Name}}"{{if eq .T.Origin "file"}} readonly{{end}}>{{if eq .T.Origin "file"}}<span class="hint">config.yaml'da değiştirilir</span>{{end}}</label>
+        <label>Saklama (gün) <input name="retention_days" type="number" min="365" max="3650" value="{{.T.RetentionDays}}"><span class="hint">Kısaltmak eski günlerin silinmesine yol açar.</span></label>
+        <label>Lisans bitişi <input name="license_until" type="date" value="{{.T.LicenseUntil}}"></label>
+        <div class="actions"><button type="submit">Kaydet</button></div>
+      </form>
+      {{if eq .T.Origin "panel"}}
+      <form method="post" action="/admin/sources/tenant/delete" class="actions">{{template "csrf" $.CSRF}}<input type="hidden" name="id" value="{{.T.ID}}"><button class="danger sm" type="submit">Müşteriyi sil</button><span class="hint">Sadece hiç logu olmayan müşteri silinebilir.</span></form>
+      {{end}}
+    </details>
+  </div>
+</section>
+{{end}}
+
+<section class="panel">
+  <div class="panel-head"><h2>Firewall'dan log gönderme</h2></div>
+  <div class="panel-body help">
+    <p>Sunucu şu portlarda dinliyor: {{if .Listen.UDP}}UDP <code>{{.Listen.UDP}}</code> {{end}}{{if .Listen.TCP}}TCP <code>{{.Listen.TCP}}</code> {{end}}{{if .Listen.TLS}}TLS <code>{{.Listen.TLS}}</code>{{end}}</p>
+    <p><b>FortiGate</b></p>
+    <pre>config log syslogd setting
+    set status enable
+    set server "SUNUCU-IP"
+    set port 514
+    set format default
+end</pre>
+    <p><b>Sophos:</b> System services &gt; Log settings &gt; Syslog servers &gt; Add (sunucu IP, port 514, Information). <b>pfSense / OPNsense:</b> Status &gt; System Logs &gt; Settings &gt; Remote Logging. <b>MikroTik:</b> System &gt; Logging &gt; Actions &gt; remote.</p>
+    <p>DHCP loglarını da gönderin: 5651 kapsamında hangi iç IP'nin kime verildiği de sorulur. Sunucu güvenlik duvarında 514/6514 portlarını sadece müşteri IP'lerine açın.</p>
+  </div>
+</section>
+{{template "foot"}}

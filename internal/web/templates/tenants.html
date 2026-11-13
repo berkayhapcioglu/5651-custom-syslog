@@ -1,0 +1,8 @@
+{{template "head" "Müşteriler"}}
+{{template "nav" .}}
+<div class="page-head">
+  <div><h1>Müşteriler</h1><p class="sub">{{len .Rows}} müşteri</p></div>
+  {{if .IsAdmin}}<div class="actions"><a class="btn" href="/admin/sources">Müşteri ekle</a></div>{{end}}
+</div>
+<section class="panel">{{template "tenanttable" .}}</section>
+{{template "foot"}}

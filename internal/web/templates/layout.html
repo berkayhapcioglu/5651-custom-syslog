@@ -1,0 +1,54 @@
+{{define "head"}}<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{.}} · 5651 Log</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>{{end}}
+
+{{define "icon"}}<svg viewBox="0 0 24 24" aria-hidden="true">{{if eq . "home"}}<path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/>{{else if eq . "tenants"}}<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M8 4v16"/>{{else if eq . "search"}}<circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/>{{else if eq . "sources"}}<path d="M4 6h16M4 12h16M4 18h10"/><circle cx="19" cy="18" r="2"/>{{else if eq . "users"}}<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.6 3.4-5.5 6.5-5.5s5.7 1.9 6.5 5.5"/><path d="M16 4.5a3.5 3.5 0 010 7M18.5 14.8c1.6.8 2.6 2.6 3 5.2"/>{{else if eq . "settings"}}<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"/>{{else if eq . "audit"}}<path d="M12 3l8 3v6c0 4.5-3.4 8.3-8 9-4.6-.7-8-4.5-8-9V6z"/><path d="M9 12l2 2 4-4"/>{{else if eq . "account"}}<circle cx="12" cy="8" r="4"/><path d="M4 21c1-4 4-6 8-6s7 2 8 6"/>{{end}}</svg>{{end}}
+
+{{define "navlink"}}<a href="{{.H}}"{{if eq .A .K}} aria-current="page"{{end}}>{{template "icon" .K}}{{.L}}</a>{{end}}
+
+{{define "nav"}}<a class="skip" href="#icerik">İçeriğe geç</a>
+<div class="app">
+<aside class="side">
+  <a class="brand" href="/"><span class="logo">5651</span><span>5651 Log<small>Log saklama ve mühür</small></span></a>
+  <nav aria-label="Ana menü">
+    <div class="group">İzleme</div>
+    {{template "navlink" (dict "H" "/" "K" "home" "L" "Genel bakış" "A" .Active)}}
+    {{template "navlink" (dict "H" "/t" "K" "tenants" "L" "Müşteriler" "A" .Active)}}
+    {{template "navlink" (dict "H" "/search" "K" "search" "L" "Log arama" "A" .Active)}}
+    {{if .IsAdmin}}
+    <div class="group">Yönetim</div>
+    {{template "navlink" (dict "H" "/admin/sources" "K" "sources" "L" "Log kaynakları" "A" .Active)}}
+    {{template "navlink" (dict "H" "/admin/users" "K" "users" "L" "Kullanıcılar" "A" .Active)}}
+    {{template "navlink" (dict "H" "/admin/settings" "K" "settings" "L" "Ayarlar ve durum" "A" .Active)}}
+    {{template "navlink" (dict "H" "/admin/audit" "K" "audit" "L" "Denetim kaydı" "A" .Active)}}
+    {{end}}
+  </nav>
+  <div class="me">
+    <span class="avatar">{{initial .User.Username}}</span>
+    <span class="who"><b><a href="/account">{{.User.Username}}</a></b><span>{{rolename .User.Role}}</span></span>
+    <form method="post" action="/logout" class="inline">
+      <input type="hidden" name="csrf" value="{{.CSRF}}">
+      <button type="submit">Çıkış</button>
+    </form>
+  </div>
+</aside>
+<div class="content"><main id="icerik">
+{{if .FlashOK}}<div class="alert ok" role="status"><span>✓</span><div><b>{{.FlashOK}}</b></div></div>{{end}}
+{{if .FlashErr}}<div class="alert err" role="alert"><span>!</span><div><b>{{.FlashErr}}</b></div></div>{{end}}
+{{end}}
+
+{{define "foot"}}</main></div></div>
+</body>
+</html>{{end}}
+
+{{define "chart"}}<svg viewBox="0 0 {{.W}} {{.H}}" role="img" aria-label="{{.Aria}}">{{range .Grid}}<line class="grid" x1="0" x2="{{$.W}}" y1="{{.}}" y2="{{.}}"/>{{end}}{{range .Bars}}<rect class="bar" x="{{.X}}" y="{{.Y}}" width="{{.W}}" height="{{.H}}" rx="3"><title>{{.Title}}</title></rect>{{end}}{{range .Labels}}<text x="{{.X}}" y="166" text-anchor="middle">{{.Text}}</text>{{end}}{{if eq .Total 0}}<text class="empty-chart" x="50%" y="80" text-anchor="middle">Bu dönemde kayıt yok</text>{{end}}</svg>{{end}}
+
+{{define "event"}}{{$l := ""}}{{$c := "plain"}}{{if eq . "login_ok"}}{{$l = "Giriş"}}{{else if eq . "login_failed"}}{{$l = "Hatalı giriş"}}{{$c = "err"}}{{else if eq . "login_blocked"}}{{$l = "Giriş engellendi"}}{{$c = "err"}}{{else if eq . "logout"}}{{$l = "Çıkış"}}{{else if eq . "search"}}{{$l = "Arama"}}{{else if eq . "verify"}}{{$l = "Doğrulama"}}{{else if eq . "download_package"}}{{$l = "Paket indirme"}}{{else if eq . "download_raw"}}{{$l = "Dosya indirme"}}{{else if eq . "download_raw_failed"}}{{$l = "İndirme hatası"}}{{$c = "err"}}{{else if eq . "reindex"}}{{$l = "Dizin yenileme"}}{{else if eq . "password_change"}}{{$l = "Şifre değişikliği"}}{{else if eq . "password_change_failed"}}{{$l = "Şifre değiştirilemedi"}}{{$c = "err"}}{{else if eq . "settings_update"}}{{$l = "Ayar değişikliği"}}{{$c = "warn"}}{{else if eq . "source_add"}}{{$l = "Kaynak eklendi"}}{{$c = "warn"}}{{else if eq . "source_remove"}}{{$l = "Kaynak kaldırıldı"}}{{$c = "warn"}}{{else if eq . "tenant_create"}}{{$l = "Müşteri eklendi"}}{{$c = "warn"}}{{else if eq . "tenant_update"}}{{$l = "Müşteri güncellendi"}}{{$c = "warn"}}{{else if eq . "tenant_delete"}}{{$l = "Müşteri silindi"}}{{$c = "err"}}{{else if eq . "user_create"}}{{$l = "Kullanıcı eklendi"}}{{$c = "warn"}}{{else if eq . "user_update"}}{{$l = "Kullanıcı güncellendi"}}{{$c = "warn"}}{{else if eq . "retention_delete"}}{{$l = "Saklama süresi doldu, silindi"}}{{$c = "warn"}}{{else if eq . "user_delete"}}{{$l = "Kullanıcı silindi"}}{{$c = "err"}}{{end}}{{if $l}}<span class="badge {{$c}}">{{$l}}</span><small>{{.}}</small>{{else}}<span class="badge plain">{{.}}</span>{{end}}{{end}}
+
+{{define "csrf"}}<input type="hidden" name="csrf" value="{{.}}">{{end}}

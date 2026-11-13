@@ -1,0 +1,50 @@
+{{template "head" (print .T.Name " · " .MonthName)}}
+<main class="report">
+  <nav class="report-bar">
+    <a class="btn secondary sm" href="/t/{{.T.ID}}">← {{.T.Name}}</a>
+    <a class="btn secondary sm" href="?month={{.Prev}}">‹ Önceki ay</a>
+    {{if .HasNext}}<a class="btn secondary sm" href="?month={{.Next}}">Sonraki ay ›</a>{{end}}
+    <span class="hint">PDF için tarayıcıda Yazdır (Ctrl+P / ⌘P) → "PDF olarak kaydet".</span>
+  </nav>
+  <header class="report-head">
+    <div class="brand"><span class="logo">5651</span>5651 Log</div>
+    <h1>Log Saklama ve Bütünlük Raporu</h1>
+    <p class="sub">{{.T.Name}} · {{.MonthName}}</p>
+  </header>
+
+  <table class="kv report-kv">
+    <tr><th>Müşteri</th><td>{{.T.Name}} <small>({{.T.ID}})</small></td></tr>
+    <tr><th>Dönem</th><td>{{.MonthName}}</td></tr>
+    <tr><th>Saklama süresi</th><td>{{.T.RetentionDays}} gün</td></tr>
+    <tr><th>Log kaynakları</th><td>{{range $i, $d := .Devices}}{{if $i}}, {{end}}{{$d.Name}}{{if $d.Label}} ({{$d.Label}}){{end}}{{else}}-{{end}}</td></tr>
+    <tr><th>Zaman damgası sağlayıcısı</th><td>{{range $i, $x := .TSAs}}{{if $i}}; {{end}}{{$x}}{{else}}{{if eq .StampMode "none"}}Kapalı (test modu){{else}}-{{end}}{{end}}</td></tr>
+    <tr><th>Rapor tarihi</th><td>{{.Generated.Format "02.01.2006 15:04"}} · {{.User.Username}} · sunucu {{.Host}}</td></tr>
+  </table>
+
+  <div class="stats report-stats">
+    <div class="stat"><div class="label">Log gelen gün</div><div class="value">{{.WithLogs}}</div><div class="foot">{{if .Missing}}{{.Missing}} gün log yok{{else}}eksik gün yok{{end}}</div></div>
+    <div class="stat {{if .OpenDays}}warn{{else}}ok{{end}}"><div class="label">Mühürlü gün</div><div class="value">{{.Sealed}}/{{.WithLogs}}</div><div class="foot">{{if .OpenDays}}{{.OpenDays}} gün henüz mühürlenmedi{{else}}hepsi zaman damgalı{{end}}</div></div>
+    <div class="stat"><div class="label">Kayıt</div><div class="value">{{thousands .Total.Lines}}</div><div class="foot">ham {{bytes .Total.Raw}}</div></div>
+    <div class="stat"><div class="label">Saklanan</div><div class="value">{{bytes .Total.Stored}}</div><div class="foot">{{ratio .Total.Raw .Total.Stored}} sıkıştırma</div></div>
+  </div>
+
+  <table class="data report-days">
+    <thead><tr><th>Gün</th><th class="num">Kayıt</th><th class="num">Ham</th><th class="num">Saklanan</th><th>Mühür</th><th>Zaman damgası</th><th>Manifest SHA-256</th></tr></thead>
+    <tbody>{{range .Days}}{{if not .Future}}
+      <tr><td class="nowrap">{{daytr .Day}}</td>
+      {{if .Exists}}<td class="num">{{thousands .Lines}}</td><td class="num">{{bytes .Raw}}</td><td class="num">{{bytes .Stored}}</td>
+        <td>{{if .Sealed}}<span class="badge ok">Mühürlü</span>{{else}}<span class="badge warn">Açık</span>{{end}}</td>
+        <td class="nowrap">{{if .StampTime}}{{stamp .StampTime}}{{else}}-{{end}}</td><td><code class="hash">{{if .Manifest}}{{printf "%.16s" .Manifest}}…{{else}}-{{end}}</code></td>
+      {{else}}<td colspan="6" class="muted">Bu gün log gelmedi</td>{{end}}</tr>
+    {{end}}{{end}}</tbody>
+  </table>
+
+  <section class="report-note">
+    <h2>Açıklama</h2>
+    <p>Firewall logları alındıkları anda değiştirilmeden kaydedilir. Her saatin dosyası sıkıştırılır ve SHA-256 özetiyle bir zincire eklenir. Her gün sonunda o günün bütün dosyalarının özetlerini içeren manifest oluşturulur ve RFC 3161 zaman damgası alınır. Manifest bir önceki günün manifestine de bağlıdır; bu yüzden bir dosyanın ya da bir günün sonradan değiştirilmesi veya silinmesi doğrulamada ortaya çıkar.</p>
+    <p>Herhangi bir günün bütünlüğü panelde ilgili gün sayfasındaki "Bütünlüğü doğrula" ile kontrol edilebilir. Aynı sayfadaki "Doğrulama paketini indir" ile alınan dosyalar, zaman damgası OpenSSL ile servisten bağımsız olarak da doğrulanabilir: <code>openssl ts -verify -data manifest.json -in manifest.json.tsr -CAfile &lt;TSA kök sertifikası&gt;</code></p>
+    <p>Bu rapor 5651 sayılı Kanun kapsamındaki trafik kayıtlarının saklandığını göstermek için hazırlanmıştır.</p>
+  </section>
+</main>
+</body>
+</html>

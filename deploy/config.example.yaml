@@ -1,0 +1,82 @@
+# /etc/syslog5651/config.yaml
+# Bu dosyayı değiştirdikten sonra: sudo systemctl restart syslog5651
+
+# Logların saklandığı klasör (paket bunu oluşturur).
+data_dir: /var/lib/syslog5651
+# Gün ve saat sınırları bu saat dilimine göre hesaplanır.
+timezone: Europe/Istanbul
+
+listen:
+  udp: ":514"
+  tcp: ":514"
+  # Syslog over TLS (RFC 5425). İnternet üzerinden gelen loglar için önerilir.
+  tls: ":6514"
+  tls_cert: /etc/syslog5651/tls/server.crt
+  tls_key: /etc/syslog5651/tls/server.key
+  # Doldurulursa firewall'lar bu CA'nın imzaladığı istemci sertifikası sunmak zorunda.
+  # tls_client_ca: /etc/syslog5651/tls/clients-ca.crt
+  max_tcp_conns: 1024
+  # Tek bir kaynak IP'nin açabileceği en fazla bağlantı (bir cihaz diğerlerinin payını tüketemez).
+  max_tcp_conns_per_source: 32
+  tcp_idle_timeout: 15m
+
+compression:
+  # xz: en yüksek oran (xz-utils paketi kurulu olmalı). zstd: daha hızlı.
+  codec: xz
+  # Aynı anda sıkıştırılan dosya sayısı (CPU çekirdeği sayısına göre artırın).
+  workers: 2
+
+timestamp:
+  # http: RFC 3161 HTTP zaman damgası sunucusu
+  # exec: KamuSM istemcisi gibi harici bir program
+  # none: SADECE test içindir, 5651 uyumlu değildir
+  mode: none
+
+  # --- http örneği ---
+  # mode: http
+  # url: "https://..."   (KamuSM'in size verdiği zaman damgası adresi)
+  # username: "musteri-no"
+  # password_file: /etc/syslog5651/tsa-password   (izin: 0640 root:syslog5651)
+  # ca_file: /etc/syslog5651/kamusm-root.crt      (TSA sertifika zincirini doğrulamak için)
+
+  # --- exec örneği (KamuSM'in resmi istemcisi) ---
+  # mode: exec
+  # command: ["/opt/kamusm/istemci", "<istemcinin girdi parametresi>", "{data}", "<çıktı parametresi>", "{out}"]  (örnek; parametreleri KamuSM istemcisinin belgesine göre yazın)
+  # {data}: damgalanacak manifest dosyası, {out}: yazılacak .tsr dosyası
+  timeout: 60s
+
+# Varsayılan saklama süresi (gün). Müşteri bazında değiştirilebilir.
+retention_days: 730
+# Gün bittikten sonra mühürlemeden önce beklenen süre.
+day_grace: 10m
+# Tek bir syslog mesajının en büyük boyutu (bayt).
+max_message_bytes: 16384
+
+web:
+  listen: ":8443"
+  tls_cert: /etc/syslog5651/tls/server.crt
+  tls_key: /etc/syslog5651/tls/server.key
+  users_file: /var/lib/syslog5651/_panel/users.yaml  # panelden yönetilir
+  session_ttl: 8h
+
+# E-posta uyarıları için posta sunucusu. Alıcılar ve log kesintisi süresi
+# panelde Ayarlar sayfasından girilir. Boş bırakılırsa e-posta gönderilmez.
+# alerts:
+#   smtp_host: smtp.firma.com.tr
+#   smtp_port: 587            # starttls için 587, tls için 465
+#   smtp_tls: starttls        # starttls | tls | none (none sadece localhost için)
+#   username: log@firma.com.tr
+#   password_file: /etc/syslog5651/smtp-password
+#   from: "5651 Log <log@firma.com.tr>"
+
+# Tanımsız IP'lerden gelen loglar atılır. İsterseniz hepsini bir müşteriye yönlendirin:
+# default_tenant: diger
+
+# Her müşteri: kısa ad (id, klasör adı olur), görünen ad, firewall IP'leri.
+tenants:
+  - id: ornek-musteri
+    name: "Örnek Müşteri A.Ş."
+    sources:
+      - 192.0.2.10        # tek IP
+      - 198.51.100.0/28   # veya ağ
+    # retention_days: 730

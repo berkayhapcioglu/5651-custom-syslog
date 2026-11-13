@@ -1,0 +1,16 @@
+{{template "head" "Denetim kaydı"}}
+{{template "nav" .}}
+<div class="page-head"><div><h1>Denetim kaydı</h1><p class="sub">Girişler, aramalar, indirmeler, ayar değişiklikleri ve saklama silmeleri. En yeni 300 kayıt.</p></div></div>
+<section class="panel">
+  <form class="toolbar" method="get" action="/admin/audit">
+    <label class="grow">Filtre <input name="q" value="{{.Q}}" maxlength="100" placeholder="ör. login_failed, admin, source_add, musteri-a"></label>
+    <button class="secondary" type="submit">Filtrele</button>
+  </form>
+  {{if .Error}}<div class="panel-body"><div class="alert err"><span>!</span><div><b>{{.Error}}</b></div></div></div>{{end}}
+  <div class="table-wrap scroll" tabindex="0" role="region" aria-label="Sonuçlar"><table class="data log">
+    <thead><tr><th>Zaman</th><th>Olay</th><th>Kullanıcı</th><th>IP</th><th>Ayrıntı</th></tr></thead>
+    <tbody>{{range .Rows}}<tr><td class="nowrap">{{stamp .Time}}</td><td>{{template "event" .Event}}</td><td>{{.User}}</td><td class="nowrap"><code>{{.IP}}</code></td><td><code>{{.Rest}}</code></td></tr>
+    {{else}}<tr><td colspan="5"><div class="empty"><b>Kayıt yok</b></div></td></tr>{{end}}</tbody>
+  </table></div>
+</section>
+{{template "foot"}}

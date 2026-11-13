@@ -1,0 +1,61 @@
+{{template "head" .T.Name}}
+{{template "nav" .}}
+<ol class="crumbs"><li><a href="/t">Müşteriler</a></li><li aria-current="page">{{.T.Name}}</li></ol>
+<div class="page-head">
+  <div><h1>{{.T.Name}}</h1><p class="sub">{{.T.ID}} · saklama {{.T.RetentionDays}} gün · lisans {{.License.Text}}</p></div>
+  <div class="actions">{{if .IsAdmin}}<a class="btn secondary" href="/admin/sources#t-{{.T.ID}}">Kaynaklar ve ayarlar</a>{{end}}<a class="btn secondary" href="/t/{{.T.ID}}/report">Aylık rapor</a><a class="btn" href="/t/{{.T.ID}}/search">Bu müşteride ara</a></div>
+</div>
+<div class="stats">
+  <div class="stat"><div class="label">Kapladığı yer</div><div class="value">{{bytes .Usage.Disk}}</div><div class="foot">ham {{bytes .Usage.Raw}} · {{ratio .Usage.Raw .Usage.Disk}}</div></div>
+  <div class="stat {{if .Usage.OldestOpen}}warn{{else}}ok{{end}}"><div class="label">Son mühür</div><div class="value">{{if .Usage.LastSealed}}{{daytr .Usage.LastSealed}}{{else}}-{{end}}</div><div class="foot">{{if .Usage.StampTime}}damga {{stamp .Usage.StampTime}}{{else}}zaman damgası yok{{end}}</div></div>
+  <div class="stat"><div class="label">Bugün</div><div class="value">{{thousands .TodayLines}} <small>kayıt</small></div><div class="foot">{{len .Devices}} cihazdan</div></div>
+  <div class="stat {{.License.Class}}"><div class="label">Lisans</div><div class="value sm">{{.License.Text}}</div><div class="foot">{{if .License.Set}}bitiş {{daytr .License.Until}}{{else}}bitiş tarihi girilmemiş{{end}}</div></div>
+</div>
+<div class="grid-2">
+  <section class="panel"><div class="panel-head"><div><h2>Son 24 saat</h2><p>Saatlik kayıt · toplam {{thousands .Hourly.Total}}</p></div></div><div class="panel-body chart">{{template "chart" .Hourly}}</div></section>
+  <section class="panel"><div class="panel-head"><div><h2>Son 30 gün</h2><p>Günlük kayıt · toplam {{thousands .Daily.Total}}</p></div></div><div class="panel-body chart">{{template "chart" .Daily}}</div></section>
+</div>
+<div class="grid-2">
+  <section class="panel"><div class="panel-head"><h2>Cihazlar</h2></div>
+    <div class="table-wrap"><table class="data"><thead><tr><th>Cihaz</th><th>Son log</th><th>Durum</th></tr></thead><tbody>
+    {{range .Devices}}<tr><td><span class="primary">{{.Name}}</span>{{if .Label}}<small>{{.Label}}</small>{{end}}</td><td class="nowrap">{{ago .Last}}</td><td>{{if .Active}}<span class="badge ok">Aktif</span>{{else}}<span class="badge warn">Sessiz</span>{{end}}</td></tr>
+    {{else}}<tr><td colspan="3"><div class="empty"><b>Servis açıldığından beri log gelmedi</b><p>Firewall'un syslog ayarını ve kaynak IP'sini kontrol edin.</p></div></td></tr>{{end}}
+    </tbody></table></div>
+  </section>
+  <section class="panel"><div class="panel-head"><h2>Bilgiler</h2></div>
+    <table class="kv">
+      <tr><th>Müşteri kısa adı</th><td><code>{{.T.ID}}</code></td></tr>
+      <tr><th>Kaynaklar</th><td>{{range .T.SourceList}}<code>{{.Prefix}}</code>{{if .Label}} {{.Label}}{{end}}<br>{{else}}-{{end}}</td></tr>
+      <tr><th>Saklama süresi</th><td>{{.T.RetentionDays}} gün</td></tr>
+      <tr><th>Lisans bitişi</th><td>{{if .License.Set}}{{daytr .License.Until}}{{else}}-{{end}}</td></tr>
+      <tr><th>Saklanan gün</th><td>{{.Usage.Days}}</td></tr>
+      <tr><th>Toplam kayıt</th><td>{{thousands .Usage.Lines}}</td></tr>
+    </table>
+  </section>
+</div>
+<section class="panel" id="gunler">
+  <div class="panel-head"><div><h2>Günler</h2><p>Her gün gece yarısından sonra mühürlenir · {{.TotalDays}} gün</p></div></div>
+  <form class="toolbar" method="get" action="/t/{{.T.ID}}">
+    <label>Başlangıç <input type="date" name="from" value="{{.From}}"></label>
+    <label>Bitiş <input type="date" name="to" value="{{.To}}"></label>
+    <label>Durum <select name="status"><option value="">Tümü</option><option value="sealed"{{if eq .Status "sealed"}} selected{{end}}>Mühürlü</option><option value="open"{{if eq .Status "open"}} selected{{end}}>Açık</option></select></label>
+    <label>Sıra <select name="order"><option value="desc">Yeniden eskiye</option><option value="asc"{{if eq .Order "asc"}} selected{{end}}>Eskiden yeniye</option></select></label>
+    <button class="secondary" type="submit">Filtrele</button>
+    {{if or .From .To .Status}}<a class="btn secondary" href="/t/{{.T.ID}}">Temizle</a>{{end}}
+  </form>
+  <div class="table-wrap"><table class="data">
+    <thead><tr><th aria-sort="{{if eq .Order "asc"}}ascending{{else}}descending{{end}}"><a href="{{.FlipURL}}">Gün</a></th><th>Durum</th><th>Zaman damgası</th><th class="num">Dosya</th><th class="num">Kayıt</th><th class="num">Ham</th><th class="num">Saklanan</th><th class="num">Oran</th></tr></thead>
+    <tbody>
+    {{range .Days}}
+      <tr>
+        <td><a class="primary" href="/t/{{$.T.ID}}/d/{{.Day}}">{{daytr .Day}}</a></td>
+        <td>{{if .Sealed}}<span class="badge ok">Mühürlü</span>{{else}}<span class="badge plain">Açık</span>{{end}}</td>
+        <td class="nowrap">{{if .StampTime}}{{stamp .StampTime}}{{else}}-{{end}}</td>
+        <td class="num">{{.Files}}</td><td class="num">{{thousands .Lines}}</td><td class="num">{{bytes .Raw}}</td><td class="num">{{bytes .Disk}}</td><td class="num">{{ratio .Raw .Disk}}</td>
+      </tr>
+    {{else}}<tr><td colspan="8"><div class="empty"><b>Kayıt yok</b><p>Seçilen aralıkta saklanan gün bulunamadı.</p></div></td></tr>{{end}}
+    </tbody>
+  </table></div>
+  {{if gt .Pages 1}}<div class="pager">Sayfa {{.Page}} / {{.Pages}} {{if gt .Page 1}}<a class="btn secondary sm" href="{{.PrevURL}}#gunler">Önceki</a>{{end}}{{if lt .Page .Pages}}<a class="btn secondary sm" href="{{.NextURL}}#gunler">Sonraki</a>{{end}}</div>{{end}}
+</section>
+{{template "foot"}}
